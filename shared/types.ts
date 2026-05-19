@@ -5,3 +5,16 @@
 export interface HealthResponse {
   ok: boolean;
 }
+
+export interface VaultResponse {
+  path: string | null;
+}
+
+export interface VaultSetRequest {
+  path: string;
+}
+
+export interface ApiError {
+  error: string;
+  message: string;
+}
