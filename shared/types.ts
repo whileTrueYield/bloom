@@ -56,3 +56,17 @@ export interface UpdateNoteRequest {
 export interface NotesListResponse {
   notes: NoteSummary[];
 }
+
+export interface CaptureRequest {
+  text: string;
+  geo?: {
+    lat: number;
+    lon: number;
+    accuracy_m?: number | null;
+  };
+}
+
+export interface CaptureResponse {
+  date: string;
+  path: string;
+}
