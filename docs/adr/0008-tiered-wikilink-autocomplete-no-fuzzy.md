@@ -1,0 +1,5 @@
+# Tiered wikilink autocomplete, no fuzzy matching
+
+When typing `[[<query>`, the autocomplete returns suggestions in strict tiers: (1) exact prefix on title or alias, (2) substring in title or alias, (3) substring in Summary, (4) semantic match via embeddings. Tiers do not interleave — results within a tier sort by recency. Fuzzy matching (fzf-style ranked-by-score) was rejected because the chaotic results undermine link integrity: a wikilink with a typo creates a broken link or, worse, a duplicate concept the user doesn't realize already exists.
+
+Typo-hostility is the point. A query that doesn't substring-match anything returns no tier-1/2/3 results, which forces the user to slow down and re-read before creating the link — the correct behavior at the moment a new edge is added to the knowledge graph. The semantic tier (4) provides a safety net for "I don't remember the exact word" without the chaos of fuzzy ranking, because semantic results are clearly visually distinct (semantic chip) and ranked below the deterministic tiers.

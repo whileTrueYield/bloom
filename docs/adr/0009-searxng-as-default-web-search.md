@@ -1,0 +1,5 @@
+# SearXNG as the default web search provider
+
+The `@web` flow in Ask Bloom routes search queries through SearXNG — a curated public instance by default, with a single-URL setting to point at a self-hosted instance (intended end-state: SearXNG on the user's k8s cluster). Tavily (the LLM-shaped default in this space) was rejected as the default because sending every web query through a third-party paid service contradicts the local-first, privacy-coherent posture that motivated running Ollama locally in the first place. Brave Search API, Kagi, and SerpAPI were also considered and rejected on similar grounds (paid + third-party).
+
+SearXNG aggregates Google/Bing/DDG/Brave results without revealing the user's IP to those engines, requires no API key, and self-hosts in a ~50MB Docker container. The "use my own instance" override is the migration path: zero rewrites when the user moves from public to self-hosted, just a URL change. Commercial providers (Tavily etc.) remain available as opt-in fallbacks for users who prioritize cleaner LLM-shaped results over privacy.

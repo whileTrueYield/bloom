@@ -1,0 +1,5 @@
+# React 19 + Redux Toolkit, no meta-framework
+
+The frontend is a plain React 19 SPA built with Vite, served as static assets by the Bun backend. Persistent state lives in Redux Toolkit with RTK Query for the API layer. Editor state (CodeMirror 6) is deliberately *not* in Redux — CodeMirror owns in-progress text, selection, and undo history; Redux owns persisted Note metadata, search results, command palette state. The two only talk at debounced-save boundaries (~500ms).
+
+Next.js / Remix / SvelteKit were rejected: Bloom is a single-page app served by our own backend, so meta-framework features (SSR, file-based routing, server actions) buy us nothing and complicate the dev loop. Svelte 5 and SolidJS were considered and lost to the developer's existing React fluency — for a solo project, "I can write this in my sleep" beats marginal ergonomic gains. CodeMirror is used directly (no react-codemirror wrapper) because wrappers always lag the upstream and the editor is the most performance-sensitive surface in the app.

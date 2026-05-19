@@ -1,0 +1,5 @@
+# Five named AI surfaces, not a single chat
+
+Bloom exposes AI through five distinct surfaces with explicitly different jobs: **Quiet Capture** (silent — AI never runs during firehose Capture), **Ghost Completion** (inline ghost text in the Note editor only), **Slash Commands** (explicit `/clean`, `/summarize`, etc.), **Distill** (Daily Note Blocks → atomic Notes, the killer feature), and **Ask Bloom** (RAG chat in the right sidebar). The alternative — one chat sidebar that "does everything" — was rejected because the surfaces have wildly different latency budgets (sub-150ms for ghost completion vs. 30s for chat), different context window needs, and different sacredness levels (Capture must never be interrupted).
+
+The "kitchen sink of disconnected AI buttons" failure mode is also explicit non-goal: each surface has a named job *and* a named non-job (e.g., Ask Bloom is read-only over the vault — it does not write Notes, because writing is what Capture and Distill are for). This prevents capability sprawl and keeps each surface comprehensible.
