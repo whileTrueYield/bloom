@@ -1,0 +1,5 @@
+# Atomic Notes embedded whole, Daily Notes embedded per-Block
+
+The indexer treats atomic Notes as a single embedding unit (plus a separate Summary embedding for retrieval) and Daily Notes as N embedding units — one per `---`-separated Block. Generic sliding-window chunking (the LangChain/RAG default) was rejected because the Zettelkasten format already produces natural chunks: atomic Notes are designed to express one idea each. Splitting them further with sliding windows produces duplicated, low-signal vectors that pollute retrieval.
+
+Daily Notes need the opposite treatment because they're inherently multi-topic by design — a single Daily Note may contain 20 unrelated Captures from across a day. Embedding the whole Daily Note as one vector would smear those Captures together into mush. Per-Block embedding preserves the conceptual atomicity that the `---` separator already declares. The three embedding tables (`vec_notes`, `vec_blocks`, `vec_summaries`) let retrieval query the right grain for the question being asked.
