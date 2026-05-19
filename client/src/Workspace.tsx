@@ -1,7 +1,13 @@
 // Two-pane workspace shown once a Vault is configured: sidebar of Notes on
 // the left, CodeMirror editor on the right. Owns the "which note is open"
-// state and orchestrates Cmd+N + debounced save. Future slices replace the
-// sidebar with a richer navigation surface and add the right-side AI panel.
+// state and orchestrates the new-note shortcut + debounced save. Future
+// slices replace the sidebar with a richer navigation surface and add the
+// right-side AI panel.
+//
+// Why Cmd+J for "new note" instead of the more obvious Cmd+N: browsers
+// hard-reserve Cmd+N (new window) and Cmd+Shift+N (new incognito) at the
+// system level, so preventDefault is a no-op. Cmd+J is free across the
+// major browsers and easy to type.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { NoteEditor } from "./NoteEditor";
@@ -30,10 +36,10 @@ export function Workspace() {
     setActiveId(note.id);
   }, [createNote]);
 
-  // Global Cmd+N — create a new Note and open it in the editor.
+  // Global Cmd+J — create a new Note and open it in the editor.
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n") {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "j") {
         event.preventDefault();
         void onCreate();
       }
@@ -81,7 +87,7 @@ export function Workspace() {
           onClick={onCreate}
           style={{ width: "100%", padding: "0.5rem", marginBottom: "0.75rem" }}
         >
-          + New Note (⌘N)
+          + New Note (⌘J)
         </button>
         <NotesSidebar activeId={activeId} onOpen={setActiveId} />
       </aside>
@@ -104,7 +110,7 @@ export function Workspace() {
           </>
         ) : (
           <p style={{ color: "#888" }}>
-            Pick a Note from the sidebar, or press <kbd>⌘N</kbd> to create one.
+            Pick a Note from the sidebar, or press <kbd>⌘J</kbd> to create one.
           </p>
         )}
       </section>

@@ -23,7 +23,7 @@ export function NotesSidebar({ activeId, onOpen }: NotesSidebarProps) {
       </h2>
       {notes.length === 0 ? (
         <p style={{ color: "#888", fontSize: "0.875rem" }}>
-          No notes yet. Press <kbd>⌘N</kbd> to create one.
+          No notes yet. Press <kbd>⌘J</kbd> to create one.
         </p>
       ) : (
         <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
