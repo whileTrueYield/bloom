@@ -34,3 +34,34 @@ export async function resolveWikilink(
   }
   return null;
 }
+
+import type { WikilinkSuggestion } from "@shared/types";
+export type { WikilinkSuggestion };
+
+// Case-insensitive — the suggester is a discovery aid, not a strict matcher.
+// The selected title is inserted verbatim, so the resulting [[Title]] still
+// resolves cleanly through the case-sensitive resolver.
+export async function suggestWikilinks(
+  vaultPath: string,
+  query: string,
+  limit = 8,
+): Promise<WikilinkSuggestion[]> {
+  const summaries = await listNotes(vaultPath);
+  const q = query.toLowerCase();
+
+  const tier1: WikilinkSuggestion[] = [];
+  const tier2: WikilinkSuggestion[] = [];
+  for (const summary of summaries) {
+    const note = await loadNote(vaultPath, summary.id);
+    const title = extractTitle(note.body);
+    if (!title) continue;
+    const t = title.toLowerCase();
+    const base = { id: summary.id, title, modified: summary.modified };
+    if (t.startsWith(q)) {
+      tier1.push({ ...base, tier: 1 });
+    } else if (t.includes(q)) {
+      tier2.push({ ...base, tier: 2 });
+    }
+  }
+  return [...tier1, ...tier2].slice(0, limit);
+}

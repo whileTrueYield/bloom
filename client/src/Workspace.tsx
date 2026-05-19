@@ -10,6 +10,7 @@
 // preventDefault is a no-op. ⌘J is free across the major browsers.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { WikilinkSuggestion } from "@shared/types";
 import { NoteEditor } from "./NoteEditor";
 import { NotesSidebar } from "./NotesSidebar";
 import { CaptureModal } from "./CaptureModal";
@@ -30,6 +31,17 @@ async function resolveWikilinkRequest(text: string): Promise<string | null> {
   if (!res.ok) return null;
   const body = (await res.json()) as { id: string | null };
   return body.id;
+}
+
+async function suggestWikilinkRequest(
+  q: string,
+): Promise<WikilinkSuggestion[]> {
+  const res = await fetch(
+    `/api/wikilink/suggest?q=${encodeURIComponent(q)}`,
+  );
+  if (!res.ok) return [];
+  const body = (await res.json()) as { suggestions: WikilinkSuggestion[] };
+  return body.suggestions;
 }
 
 export function Workspace() {
@@ -155,6 +167,7 @@ export function Workspace() {
               initialBody={activeNote.body}
               onChange={handleEditorChange}
               wikilink={wikilinkHandlers}
+              suggestWikilinks={suggestWikilinkRequest}
             />
             <p style={{ color: "#888", fontSize: "0.8125rem", marginTop: "0.5rem" }}>
               {saveStatus === "idle" && "Editing"}

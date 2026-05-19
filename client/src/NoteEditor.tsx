@@ -10,12 +10,17 @@ import { EditorView } from "@codemirror/view";
 import { basicSetup } from "codemirror";
 import { markdown } from "@codemirror/lang-markdown";
 import { wikilinkExtension, type WikilinkHandlers } from "./wikilinkExtension";
+import {
+  wikilinkAutocomplete,
+  type WikilinkSuggestSource,
+} from "./wikilinkAutocomplete";
 
 export interface NoteEditorProps {
   noteId: string;
   initialBody: string;
   onChange: (body: string) => void;
   wikilink?: WikilinkHandlers;
+  suggestWikilinks?: WikilinkSuggestSource;
 }
 
 export function NoteEditor({
@@ -23,10 +28,12 @@ export function NoteEditor({
   initialBody,
   onChange,
   wikilink,
+  suggestWikilinks,
 }: NoteEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const onChangeRef = useRef(onChange);
   const wikilinkRef = useRef(wikilink);
+  const suggestRef = useRef(suggestWikilinks);
 
   // Keep the latest callbacks reachable from inside the editor extension
   // without forcing the editor to re-mount when the parent rerenders.
@@ -36,6 +43,9 @@ export function NoteEditor({
   useEffect(() => {
     wikilinkRef.current = wikilink;
   }, [wikilink]);
+  useEffect(() => {
+    suggestRef.current = suggestWikilinks;
+  }, [suggestWikilinks]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -51,6 +61,9 @@ export function NoteEditor({
               wikilinkRef.current?.resolve(text) ?? Promise.resolve(false),
             onClick: (text) => wikilinkRef.current?.onClick(text),
           }),
+          wikilinkAutocomplete((q) =>
+            suggestRef.current?.(q) ?? Promise.resolve([]),
+          ),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               onChangeRef.current(update.state.doc.toString());
