@@ -1,30 +1,52 @@
-// The v0 landing surface. Renders the product name and a live readout of the
-// server health so it's immediately obvious whether the Bun side is reachable.
-// Future slices replace this with the real shell (sidebar, editor, status bar).
+// v0 shell: persistent TopBar plus a center column that exposes the Vault
+// settings form. Once a Vault is chosen, future slices replace the body with
+// the real Note editor and sidebar.
 
+import { TopBar } from "./TopBar";
+import { VaultSettings } from "./VaultSettings";
 import { useGetHealthQuery } from "./healthApi";
+import { useGetVaultQuery } from "./vaultApi";
 
 export function App() {
-  const { data, isLoading, isError } = useGetHealthQuery();
+  const { data: health, isLoading: healthLoading, isError: healthError } =
+    useGetHealthQuery();
+  const { data: vault } = useGetVaultQuery();
 
-  const status = isLoading
+  const serverStatus = healthLoading
     ? "checking…"
-    : isError
+    : healthError
     ? "unreachable"
-    : data?.ok
+    : health?.ok
     ? "ready"
     : "down";
 
   return (
-    <main style={{ fontFamily: "system-ui, sans-serif", padding: "3rem", maxWidth: "40rem" }}>
-      <h1 style={{ marginBottom: "0.25rem" }}>Bloom</h1>
-      <p style={{ color: "#666", marginTop: 0 }}>A local-first second brain.</p>
-      <p>
-        Server: <strong>{status}</strong>
-      </p>
-      <p style={{ color: "#888", fontSize: "0.875rem" }}>
-        No vault selected. Vault selection lands in the next slice.
-      </p>
-    </main>
+    <>
+      <TopBar />
+      <main
+        style={{
+          fontFamily: "system-ui, sans-serif",
+          padding: "2rem 1.5rem",
+          maxWidth: "44rem",
+        }}
+      >
+        <p style={{ color: "#666" }}>
+          Server: <strong>{serverStatus}</strong>
+        </p>
+
+        {vault?.path ? (
+          <p style={{ color: "#444" }}>
+            Vault ready. Slice #5 will land the Note editor.
+          </p>
+        ) : (
+          <p style={{ color: "#444" }}>
+            Bloom needs a folder to use as your Vault. Pick one below — it can
+            live in iCloud Drive, Dropbox, or a regular folder.
+          </p>
+        )}
+
+        <VaultSettings />
+      </main>
+    </>
   );
 }

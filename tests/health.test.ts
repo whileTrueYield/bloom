@@ -7,7 +7,7 @@ import { createApp } from "@server/app";
 
 describe("server health", () => {
   it("GET /api/health returns ok:true", async () => {
-    const app = createApp();
+    const app = createApp({ settingsPath: "/tmp/bloom-health-test-settings.json" });
     const res = await app.request("/api/health");
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
