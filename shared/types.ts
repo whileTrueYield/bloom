@@ -85,3 +85,31 @@ export interface WikilinkSuggestion {
 export interface WikilinkSuggestResponse {
   suggestions: WikilinkSuggestion[];
 }
+
+export interface NoteSearchResult {
+  kind: "note";
+  noteId: string;
+  title: string | null;
+  snippet: string;
+  rank: number;
+}
+
+export interface BlockSearchResult {
+  kind: "block";
+  dailyDate: string;
+  blockIndex: number;
+  time: string | null;
+  snippet: string;
+  rank: number;
+}
+
+export type SearchResult = NoteSearchResult | BlockSearchResult;
+
+export interface SearchResponse {
+  results: SearchResult[];
+}
+
+export interface IndexRebuildResponse {
+  notes: number;
+  daily: number;
+}

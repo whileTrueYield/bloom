@@ -14,6 +14,7 @@ import type { WikilinkSuggestion } from "@shared/types";
 import { NoteEditor } from "./NoteEditor";
 import { NotesSidebar } from "./NotesSidebar";
 import { CaptureModal } from "./CaptureModal";
+import { CommandPalette } from "./CommandPalette";
 import {
   useCreateNoteMutation,
   useGetNoteQuery,
@@ -48,6 +49,7 @@ export function Workspace() {
   const [activeId, setActiveId] = useNoteRoute();
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [captureOpen, setCaptureOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   const { data: activeNote } = useGetNoteQuery(activeId ?? "", {
     skip: !activeId,
@@ -60,7 +62,8 @@ export function Workspace() {
     setActiveId(note.id);
   }, [createNote, setActiveId]);
 
-  // Global hotkeys: ⌘J = new Note, ⌘⇧J = Capture, ⌘[ / ⌘] = history nav.
+  // Global hotkeys: ⌘J = new Note, ⌘⇧J = Capture, ⌘K = command palette,
+  // ⌘[ / ⌘] = history nav.
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey)) return;
@@ -69,6 +72,9 @@ export function Workspace() {
         event.preventDefault();
         if (event.shiftKey) setCaptureOpen(true);
         else void onCreate();
+      } else if (key === "k") {
+        event.preventDefault();
+        setPaletteOpen((open) => !open);
       } else if (event.key === "[") {
         event.preventDefault();
         window.history.back();
@@ -141,6 +147,11 @@ export function Workspace() {
   return (
     <div style={{ display: "flex", gap: "1rem", padding: "1rem 1.5rem" }}>
       <CaptureModal open={captureOpen} onClose={() => setCaptureOpen(false)} />
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        onOpenNote={setActiveId}
+      />
 
       <aside style={{ flex: "0 0 14rem" }}>
         <button
@@ -180,7 +191,8 @@ export function Workspace() {
           <p style={{ color: "#888" }}>
             Pick a Note from the sidebar, or press <kbd>⌘J</kbd> to create one.
             <br />
-            Use <kbd>⌘[</kbd> / <kbd>⌘]</kbd> to navigate back/forward.
+            Search everything with <kbd>⌘K</kbd>. Navigate history with{" "}
+            <kbd>⌘[</kbd> / <kbd>⌘]</kbd>.
           </p>
         )}
       </section>

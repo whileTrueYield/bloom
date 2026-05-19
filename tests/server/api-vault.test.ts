@@ -22,7 +22,7 @@ afterEach(async () => {
 
 describe("POST /api/vault", () => {
   it("returns 400 + structured error for a path that does not exist", async () => {
-    const app = createApp({ settingsPath });
+    const app = createApp({ settingsPath, indexRoot: path.join(workdir, "index") });
 
     const res = await app.request("/api/vault", {
       method: "POST",
@@ -37,7 +37,7 @@ describe("POST /api/vault", () => {
   });
 
   it("bootstraps subdirs, persists the choice, and echoes the path on a valid vault", async () => {
-    const app = createApp({ settingsPath });
+    const app = createApp({ settingsPath, indexRoot: path.join(workdir, "index") });
     const vaultPath = path.join(workdir, "vault");
     await mkdir(vaultPath);
 
@@ -65,14 +65,14 @@ describe("POST /api/vault", () => {
 
 describe("GET /api/vault", () => {
   it("returns {path: null} when no vault has been chosen", async () => {
-    const app = createApp({ settingsPath });
+    const app = createApp({ settingsPath, indexRoot: path.join(workdir, "index") });
     const res = await app.request("/api/vault");
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ path: null });
   });
 
   it("returns the persisted path after a successful POST", async () => {
-    const app = createApp({ settingsPath });
+    const app = createApp({ settingsPath, indexRoot: path.join(workdir, "index") });
     const vaultPath = path.join(workdir, "vault");
     await mkdir(vaultPath);
 

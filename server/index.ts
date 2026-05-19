@@ -6,15 +6,16 @@ import os from "node:os";
 import path from "node:path";
 import { createApp } from "./app";
 
-const settingsPath = path.join(
+const appSupport = path.join(
   os.homedir(),
   "Library",
   "Application Support",
   "Bloom",
-  "settings.json",
 );
+const settingsPath = path.join(appSupport, "settings.json");
+const indexRoot = path.join(appSupport, "index");
 
-const app = createApp({ settingsPath });
+const app = createApp({ settingsPath, indexRoot });
 const port = Number(process.env.PORT ?? 3000);
 
 console.log(`Bloom server listening on http://localhost:${port}`);
