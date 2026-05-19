@@ -1,0 +1,50 @@
+// End-to-end /api/wikilink/resolve tests against a real Vault populated
+// with real Notes whose H1s drive the resolver.
+
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { createApp } from "@server/app";
+import { bootstrapVaultLayout, createNote, saveNote } from "@server/vault";
+import { saveSettings } from "@server/settings";
+
+let workdir: string;
+let vaultPath: string;
+let settingsPath: string;
+
+beforeEach(async () => {
+  workdir = await mkdtemp(path.join(tmpdir(), "bloom-api-wikilink-"));
+  vaultPath = path.join(workdir, "vault");
+  settingsPath = path.join(workdir, "settings.json");
+  await mkdir(vaultPath);
+  await bootstrapVaultLayout(vaultPath);
+  await saveSettings(settingsPath, { vaultPath });
+});
+
+afterEach(async () => {
+  await rm(workdir, { recursive: true, force: true });
+});
+
+describe("GET /api/wikilink/resolve", () => {
+  it("returns the id of a Note whose H1 matches the link text", async () => {
+    const note = await createNote(vaultPath);
+    await saveNote(vaultPath, note.id, "# Zettelkasten as thinking tool\n\nbody");
+
+    const app = createApp({ settingsPath });
+    const res = await app.request(
+      `/api/wikilink/resolve?text=${encodeURIComponent("Zettelkasten as thinking tool")}`,
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { id: string | null };
+    expect(body.id).toBe(note.id);
+  });
+
+  it("returns {id: null} when no Note's H1 matches", async () => {
+    const app = createApp({ settingsPath });
+    const res = await app.request("/api/wikilink/resolve?text=NoSuchTitle");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ id: null });
+  });
+});
