@@ -1,0 +1,31 @@
+{
+  "name": "bloom",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "A local-first second brain in the Zettelkasten tradition.",
+  "scripts": {
+    "dev": "concurrently -k -n server,client -c blue,green \"bun run dev:server\" \"bun run dev:client\"",
+    "dev:server": "bun --hot server/index.ts",
+    "dev:client": "vite",
+    "build:client": "vite build",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@reduxjs/toolkit": "^2.5.0",
+    "hono": "^4.6.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-redux": "^9.2.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "concurrently": "^9.0.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
+  }
+}
