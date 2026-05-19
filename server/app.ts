@@ -6,6 +6,8 @@ import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import type {
   ApiError,
+  CaptureRequest,
+  CaptureResponse,
   CreateNoteRequest,
   HealthResponse,
   NoteResponse,
@@ -22,6 +24,7 @@ import {
   saveNote,
   validateVaultPath,
 } from "./vault";
+import { appendBlock } from "./dailyNote";
 import { loadSettings, saveSettings } from "./settings";
 
 export interface AppDeps {
@@ -125,6 +128,21 @@ export function createApp(deps: AppDeps): Hono {
   });
 
   app.route("/api/notes", notesRouter);
+
+  const captureRouter = new Hono<RequireVaultEnv>();
+  captureRouter.use("*", requireVault(deps));
+
+  captureRouter.post("/", async (c) => {
+    const body = (await c.req.json()) as CaptureRequest;
+    const result = await appendBlock(c.var.vaultPath, {
+      text: body.text,
+      geo: body.geo,
+    });
+    const response: CaptureResponse = { date: result.date, path: result.path };
+    return c.json(response, 201);
+  });
+
+  app.route("/api/capture", captureRouter);
 
   return app;
 }

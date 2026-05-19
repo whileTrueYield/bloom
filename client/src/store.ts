@@ -4,18 +4,21 @@ import { configureStore } from "@reduxjs/toolkit";
 import { healthApi } from "./healthApi";
 import { vaultApi } from "./vaultApi";
 import { notesApi } from "./notesApi";
+import { captureApi } from "./captureApi";
 
 export const store = configureStore({
   reducer: {
     [healthApi.reducerPath]: healthApi.reducer,
     [vaultApi.reducerPath]: vaultApi.reducer,
     [notesApi.reducerPath]: notesApi.reducer,
+    [captureApi.reducerPath]: captureApi.reducer,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware().concat(
       healthApi.middleware,
       vaultApi.middleware,
       notesApi.middleware,
+      captureApi.middleware,
     ),
 });
 

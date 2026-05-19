@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { NoteEditor } from "./NoteEditor";
 import { NotesSidebar } from "./NotesSidebar";
+import { CaptureModal } from "./CaptureModal";
 import {
   useCreateNoteMutation,
   useGetNoteQuery,
@@ -24,6 +25,7 @@ type SaveStatus = "idle" | "saving" | "saved" | "error";
 export function Workspace() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
+  const [captureOpen, setCaptureOpen] = useState(false);
 
   const { data: activeNote } = useGetNoteQuery(activeId ?? "", {
     skip: !activeId,
@@ -36,11 +38,17 @@ export function Workspace() {
     setActiveId(note.id);
   }, [createNote]);
 
-  // Global Cmd+J — create a new Note and open it in the editor.
+  // Global hotkeys: ⌘J = new Note, ⌘⇧J = Capture modal.
+  // ⌘N and ⌘⇧N are browser-reserved (new window / new incognito), so we use
+  // the J-pair instead.
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "j") {
-        event.preventDefault();
+      if (!(event.metaKey || event.ctrlKey)) return;
+      if (event.key.toLowerCase() !== "j") return;
+      event.preventDefault();
+      if (event.shiftKey) {
+        setCaptureOpen(true);
+      } else {
         void onCreate();
       }
     };
@@ -82,12 +90,20 @@ export function Workspace() {
 
   return (
     <div style={{ display: "flex", gap: "1rem", padding: "1rem 1.5rem" }}>
+      <CaptureModal open={captureOpen} onClose={() => setCaptureOpen(false)} />
+
       <aside style={{ flex: "0 0 14rem" }}>
         <button
           onClick={onCreate}
-          style={{ width: "100%", padding: "0.5rem", marginBottom: "0.75rem" }}
+          style={{ width: "100%", padding: "0.5rem", marginBottom: "0.5rem" }}
         >
           + New Note (⌘J)
+        </button>
+        <button
+          onClick={() => setCaptureOpen(true)}
+          style={{ width: "100%", padding: "0.5rem", marginBottom: "0.75rem" }}
+        >
+          ⚡ Capture (⌘⇧J)
         </button>
         <NotesSidebar activeId={activeId} onOpen={setActiveId} />
       </aside>
