@@ -1,13 +1,13 @@
 // Two-pane workspace shown once a Vault is configured: sidebar of Notes on
-// the left, CodeMirror editor on the right. Owns the "which note is open"
-// state and orchestrates the new-note shortcut + debounced save. Future
-// slices replace the sidebar with a richer navigation surface and add the
-// right-side AI panel.
+// the left, CodeMirror editor on the right. Owns hotkeys and orchestrates
+// wikilink resolution / creation.
 //
-// Why Cmd+J for "new note" instead of the more obvious Cmd+N: browsers
-// hard-reserve Cmd+N (new window) and Cmd+Shift+N (new incognito) at the
-// system level, so preventDefault is a no-op. Cmd+J is free across the
-// major browsers and easy to type.
+// The "which note is open" state lives in the URL hash (see useNoteRoute),
+// so browser back/forward — and our ⌘[ / ⌘] bindings — work for free.
+//
+// Why ⌘J for "new Note" instead of the obvious ⌘N: browsers hard-reserve
+// ⌘N (new window) and ⌘⇧N (new incognito) at the system level, so
+// preventDefault is a no-op. ⌘J is free across the major browsers.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { NoteEditor } from "./NoteEditor";
@@ -19,11 +19,21 @@ import {
   useSaveNoteMutation,
 } from "./notesApi";
 import { debounce } from "./debounce";
+import { useNoteRoute } from "./useNoteRoute";
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 
+async function resolveWikilinkRequest(text: string): Promise<string | null> {
+  const res = await fetch(
+    `/api/wikilink/resolve?text=${encodeURIComponent(text)}`,
+  );
+  if (!res.ok) return null;
+  const body = (await res.json()) as { id: string | null };
+  return body.id;
+}
+
 export function Workspace() {
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [activeId, setActiveId] = useNoteRoute();
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [captureOpen, setCaptureOpen] = useState(false);
 
@@ -36,20 +46,23 @@ export function Workspace() {
   const onCreate = useCallback(async () => {
     const note = await createNote({}).unwrap();
     setActiveId(note.id);
-  }, [createNote]);
+  }, [createNote, setActiveId]);
 
-  // Global hotkeys: ⌘J = new Note, ⌘⇧J = Capture modal.
-  // ⌘N and ⌘⇧N are browser-reserved (new window / new incognito), so we use
-  // the J-pair instead.
+  // Global hotkeys: ⌘J = new Note, ⌘⇧J = Capture, ⌘[ / ⌘] = history nav.
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey)) return;
-      if (event.key.toLowerCase() !== "j") return;
-      event.preventDefault();
-      if (event.shiftKey) {
-        setCaptureOpen(true);
-      } else {
-        void onCreate();
+      const key = event.key.toLowerCase();
+      if (key === "j") {
+        event.preventDefault();
+        if (event.shiftKey) setCaptureOpen(true);
+        else void onCreate();
+      } else if (event.key === "[") {
+        event.preventDefault();
+        window.history.back();
+      } else if (event.key === "]") {
+        event.preventDefault();
+        window.history.forward();
       }
     };
     window.addEventListener("keydown", handler);
@@ -88,6 +101,31 @@ export function Workspace() {
     [activeId, debouncedSave],
   );
 
+  // Wikilink: clicking a resolved link navigates; clicking an unresolved
+  // link offers to create a new Note pre-populated with the title as H1.
+  const handleWikilinkClick = useCallback(
+    async (linkText: string) => {
+      const id = await resolveWikilinkRequest(linkText);
+      if (id) {
+        setActiveId(id);
+        return;
+      }
+      if (!window.confirm(`Create new note "${linkText}"?`)) return;
+      const note = await createNote({}).unwrap();
+      await saveNote({ id: note.id, body: `# ${linkText}\n\n` }).unwrap();
+      setActiveId(note.id);
+    },
+    [createNote, saveNote, setActiveId],
+  );
+
+  const wikilinkHandlers = useMemo(
+    () => ({
+      resolve: async (text: string) => (await resolveWikilinkRequest(text)) !== null,
+      onClick: (text: string) => void handleWikilinkClick(text),
+    }),
+    [handleWikilinkClick],
+  );
+
   return (
     <div style={{ display: "flex", gap: "1rem", padding: "1rem 1.5rem" }}>
       <CaptureModal open={captureOpen} onClose={() => setCaptureOpen(false)} />
@@ -116,6 +154,7 @@ export function Workspace() {
               noteId={activeNote.id}
               initialBody={activeNote.body}
               onChange={handleEditorChange}
+              wikilink={wikilinkHandlers}
             />
             <p style={{ color: "#888", fontSize: "0.8125rem", marginTop: "0.5rem" }}>
               {saveStatus === "idle" && "Editing"}
@@ -127,6 +166,8 @@ export function Workspace() {
         ) : (
           <p style={{ color: "#888" }}>
             Pick a Note from the sidebar, or press <kbd>⌘J</kbd> to create one.
+            <br />
+            Use <kbd>⌘[</kbd> / <kbd>⌘]</kbd> to navigate back/forward.
           </p>
         )}
       </section>

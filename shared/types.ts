@@ -70,3 +70,7 @@ export interface CaptureResponse {
   date: string;
   path: string;
 }
+
+export interface WikilinkResolveResponse {
+  id: string | null;
+}

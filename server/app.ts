@@ -15,6 +15,7 @@ import type {
   UpdateNoteRequest,
   VaultResponse,
   VaultSetRequest,
+  WikilinkResolveResponse,
 } from "@shared/types";
 import {
   bootstrapVaultLayout,
@@ -25,6 +26,7 @@ import {
   validateVaultPath,
 } from "./vault";
 import { appendBlock } from "./dailyNote";
+import { resolveWikilink } from "./wikilink";
 import { loadSettings, saveSettings } from "./settings";
 
 export interface AppDeps {
@@ -143,6 +145,25 @@ export function createApp(deps: AppDeps): Hono {
   });
 
   app.route("/api/capture", captureRouter);
+
+  const wikilinkRouter = new Hono<RequireVaultEnv>();
+  wikilinkRouter.use("*", requireVault(deps));
+
+  wikilinkRouter.get("/resolve", async (c) => {
+    const text = c.req.query("text");
+    if (!text) {
+      const err: ApiError = {
+        error: "MISSING_TEXT",
+        message: "Wikilink resolution requires ?text=<linkText>.",
+      };
+      return c.json(err, 400);
+    }
+    const id = await resolveWikilink(c.var.vaultPath, text);
+    const body: WikilinkResolveResponse = { id };
+    return c.json(body);
+  });
+
+  app.route("/api/wikilink", wikilinkRouter);
 
   return app;
 }
