@@ -3,19 +3,51 @@
 // `server/index.ts` is the only place that binds it to a port.
 
 import { Hono } from "hono";
+import { createMiddleware } from "hono/factory";
 import type {
   ApiError,
+  CreateNoteRequest,
   HealthResponse,
+  NoteResponse,
+  NotesListResponse,
+  UpdateNoteRequest,
   VaultResponse,
   VaultSetRequest,
 } from "@shared/types";
-import { bootstrapVaultLayout, validateVaultPath } from "./vault";
+import {
+  bootstrapVaultLayout,
+  createNote,
+  listNotes,
+  loadNote,
+  saveNote,
+  validateVaultPath,
+} from "./vault";
 import { loadSettings, saveSettings } from "./settings";
 
 export interface AppDeps {
   // Absolute path to the JSON settings file. Production uses
   // ~/Library/Application Support/Bloom/settings.json; tests use a temp path.
   settingsPath: string;
+}
+
+// Note routes refuse to run when no Vault is configured. The middleware loads
+// settings on each request (cheap, ~kilobyte JSON) and exposes the resolved
+// vault path to handlers via c.var.vaultPath.
+type RequireVaultEnv = { Variables: { vaultPath: string } };
+
+function requireVault(deps: AppDeps) {
+  return createMiddleware<RequireVaultEnv>(async (c, next) => {
+    const settings = await loadSettings(deps.settingsPath);
+    if (!settings.vaultPath) {
+      const err: ApiError = {
+        error: "NO_VAULT",
+        message: "No vault is configured. Set one via POST /api/vault.",
+      };
+      return c.json(err, 412);
+    }
+    c.set("vaultPath", settings.vaultPath);
+    await next();
+  });
 }
 
 export function createApp(deps: AppDeps): Hono {
@@ -47,6 +79,52 @@ export function createApp(deps: AppDeps): Hono {
     const ok: VaultResponse = { path: validation.path };
     return c.json(ok);
   });
+
+  const notesRouter = new Hono<RequireVaultEnv>();
+  notesRouter.use("*", requireVault(deps));
+
+  notesRouter.get("/", async (c) => {
+    const notes = await listNotes(c.var.vaultPath);
+    const body: NotesListResponse = { notes };
+    return c.json(body);
+  });
+
+  notesRouter.post("/", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as CreateNoteRequest;
+    const note = await createNote(c.var.vaultPath, { geo: body.geo });
+    return c.json(note as NoteResponse, 201);
+  });
+
+  notesRouter.get("/:id", async (c) => {
+    const id = c.req.param("id");
+    try {
+      const note = await loadNote(c.var.vaultPath, id);
+      return c.json(note as NoteResponse);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        const e: ApiError = { error: "NOTE_NOT_FOUND", message: `No Note with id ${id}` };
+        return c.json(e, 404);
+      }
+      throw err;
+    }
+  });
+
+  notesRouter.put("/:id", async (c) => {
+    const id = c.req.param("id");
+    const { body } = (await c.req.json()) as UpdateNoteRequest;
+    try {
+      const note = await saveNote(c.var.vaultPath, id, body);
+      return c.json(note as NoteResponse);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        const e: ApiError = { error: "NOTE_NOT_FOUND", message: `No Note with id ${id}` };
+        return c.json(e, 404);
+      }
+      throw err;
+    }
+  });
+
+  app.route("/api/notes", notesRouter);
 
   return app;
 }
