@@ -20,6 +20,33 @@ export interface WikilinkSuggestSource {
 // closed link). Cursor must sit at the end of <query>.
 const OPEN_RE = /\[\[([^\]\n]*)$/;
 
+// Pure math for the edit applied when the user picks a suggestion. Extracted
+// so it can be tested without spinning up an EditorView. `from` is the
+// position right after the opening `[[`, `to` is the cursor, `charsAfter` is
+// the two chars immediately following the cursor — we consume `]]` there
+// instead of inserting another pair (otherwise `[[an]]` → `[[an]]]]`).
+export interface WikilinkEdit {
+  from: number;
+  to: number;
+  insert: string;
+  cursorAt: number;
+}
+
+export function buildWikilinkEdit(
+  from: number,
+  to: number,
+  charsAfter: string,
+  title: string,
+): WikilinkEdit {
+  const consumesClosing = charsAfter === "]]";
+  return {
+    from,
+    to: consumesClosing ? to + 2 : to,
+    insert: `${title}]]`,
+    cursorAt: from + title.length + 2,
+  };
+}
+
 export function wikilinkAutocomplete(suggest: WikilinkSuggestSource) {
   return autocompletion({
     override: [
@@ -38,13 +65,11 @@ export function wikilinkAutocomplete(suggest: WikilinkSuggestSource) {
           detail: new Date(s.modified).toLocaleDateString(),
           boost: s.tier === 1 ? 10 : 0,
           apply: (view, _completion, from, to) => {
-            // `from` is the position of `[[`; we want to overwrite from just
-            // after the braces through the cursor with `<title>]]` and park
-            // the cursor after the closing braces.
-            const insertFrom = from + 2;
+            const charsAfter = view.state.sliceDoc(to, to + 2);
+            const edit = buildWikilinkEdit(from, to, charsAfter, s.title);
             view.dispatch({
-              changes: { from: insertFrom, to, insert: `${s.title}]]` },
-              selection: { anchor: insertFrom + s.title.length + 2 },
+              changes: { from: edit.from, to: edit.to, insert: edit.insert },
+              selection: { anchor: edit.cursorAt },
             });
           },
         }));
