@@ -4,14 +4,18 @@
 
 import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
+import { createHash } from "node:crypto";
+import path from "node:path";
 import type {
   ApiError,
   CaptureRequest,
   CaptureResponse,
   CreateNoteRequest,
   HealthResponse,
+  IndexRebuildResponse,
   NoteResponse,
   NotesListResponse,
+  SearchResponse,
   UpdateNoteRequest,
   VaultResponse,
   VaultSetRequest,
@@ -29,19 +33,30 @@ import {
 import { appendBlock } from "./dailyNote";
 import { resolveWikilink, suggestWikilinks } from "./wikilink";
 import { loadSettings, saveSettings } from "./settings";
+import { createIndexer, type Indexer } from "./indexer";
 
 export interface AppDeps {
   // Absolute path to the JSON settings file. Production uses
   // ~/Library/Application Support/Bloom/settings.json; tests use a temp path.
   settingsPath: string;
+  // Root directory under which per-vault index databases are stored
+  // (`<indexRoot>/<vaultHash>/index.sqlite`). Production matches the settings
+  // path's parent dir; tests pass a temp path for full isolation.
+  indexRoot: string;
+}
+
+function vaultHash(vaultPath: string): string {
+  return createHash("sha256").update(vaultPath).digest("hex").slice(0, 16);
 }
 
 // Note routes refuse to run when no Vault is configured. The middleware loads
 // settings on each request (cheap, ~kilobyte JSON) and exposes the resolved
 // vault path to handlers via c.var.vaultPath.
-type RequireVaultEnv = { Variables: { vaultPath: string } };
+type RequireVaultEnv = {
+  Variables: { vaultPath: string; indexer: Indexer };
+};
 
-function requireVault(deps: AppDeps) {
+function requireVault(deps: AppDeps, getIndexer: (vaultPath: string) => Indexer) {
   return createMiddleware<RequireVaultEnv>(async (c, next) => {
     const settings = await loadSettings(deps.settingsPath);
     if (!settings.vaultPath) {
@@ -52,12 +67,27 @@ function requireVault(deps: AppDeps) {
       return c.json(err, 412);
     }
     c.set("vaultPath", settings.vaultPath);
+    c.set("indexer", getIndexer(settings.vaultPath));
     await next();
   });
 }
 
 export function createApp(deps: AppDeps): Hono {
   const app = new Hono();
+
+  // Per-vault Indexer cache. Keyed by vaultPath so that POSTing a new vault
+  // automatically gets a fresh indexer; the previous one is still reachable
+  // via its old vaultPath key if it ever matters (e.g., during migrations).
+  const indexerCache = new Map<string, Indexer>();
+  function getIndexer(vaultPath: string): Indexer {
+    let cached = indexerCache.get(vaultPath);
+    if (!cached) {
+      const dbPath = path.join(deps.indexRoot, vaultHash(vaultPath), "index.sqlite");
+      cached = createIndexer({ dbPath, vaultPath });
+      indexerCache.set(vaultPath, cached);
+    }
+    return cached;
+  }
 
   app.get("/api/health", (c) => {
     const body: HealthResponse = { ok: true };
@@ -87,7 +117,7 @@ export function createApp(deps: AppDeps): Hono {
   });
 
   const notesRouter = new Hono<RequireVaultEnv>();
-  notesRouter.use("*", requireVault(deps));
+  notesRouter.use("*", requireVault(deps, getIndexer));
 
   notesRouter.get("/", async (c) => {
     const notes = await listNotes(c.var.vaultPath);
@@ -98,6 +128,7 @@ export function createApp(deps: AppDeps): Hono {
   notesRouter.post("/", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as CreateNoteRequest;
     const note = await createNote(c.var.vaultPath, { geo: body.geo });
+    await c.var.indexer.indexNote(note.id);
     return c.json(note as NoteResponse, 201);
   });
 
@@ -120,6 +151,7 @@ export function createApp(deps: AppDeps): Hono {
     const { body } = (await c.req.json()) as UpdateNoteRequest;
     try {
       const note = await saveNote(c.var.vaultPath, id, body);
+      await c.var.indexer.indexNote(note.id);
       return c.json(note as NoteResponse);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") {
@@ -133,7 +165,7 @@ export function createApp(deps: AppDeps): Hono {
   app.route("/api/notes", notesRouter);
 
   const captureRouter = new Hono<RequireVaultEnv>();
-  captureRouter.use("*", requireVault(deps));
+  captureRouter.use("*", requireVault(deps, getIndexer));
 
   captureRouter.post("/", async (c) => {
     const body = (await c.req.json()) as CaptureRequest;
@@ -141,6 +173,7 @@ export function createApp(deps: AppDeps): Hono {
       text: body.text,
       geo: body.geo,
     });
+    await c.var.indexer.indexDailyNote(result.date);
     const response: CaptureResponse = { date: result.date, path: result.path };
     return c.json(response, 201);
   });
@@ -148,7 +181,7 @@ export function createApp(deps: AppDeps): Hono {
   app.route("/api/capture", captureRouter);
 
   const wikilinkRouter = new Hono<RequireVaultEnv>();
-  wikilinkRouter.use("*", requireVault(deps));
+  wikilinkRouter.use("*", requireVault(deps, getIndexer));
 
   wikilinkRouter.get("/resolve", async (c) => {
     const text = c.req.query("text");
@@ -174,6 +207,30 @@ export function createApp(deps: AppDeps): Hono {
   });
 
   app.route("/api/wikilink", wikilinkRouter);
+
+  const searchRouter = new Hono<RequireVaultEnv>();
+  searchRouter.use("*", requireVault(deps, getIndexer));
+
+  searchRouter.get("/", (c) => {
+    const q = c.req.query("q") ?? "";
+    const limit = Number(c.req.query("limit") ?? 20);
+    const results = q ? c.var.indexer.search(q, limit) : [];
+    const body: SearchResponse = { results };
+    return c.json(body);
+  });
+
+  app.route("/api/search", searchRouter);
+
+  const indexRouter = new Hono<RequireVaultEnv>();
+  indexRouter.use("*", requireVault(deps, getIndexer));
+
+  indexRouter.post("/rebuild", async (c) => {
+    const counts = await c.var.indexer.rebuild();
+    const body: IndexRebuildResponse = counts;
+    return c.json(body);
+  });
+
+  app.route("/api/index", indexRouter);
 
   return app;
 }

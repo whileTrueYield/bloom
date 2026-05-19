@@ -31,7 +31,7 @@ describe("GET /api/wikilink/resolve", () => {
     const note = await createNote(vaultPath);
     await saveNote(vaultPath, note.id, "# Zettelkasten as thinking tool\n\nbody");
 
-    const app = createApp({ settingsPath });
+    const app = createApp({ settingsPath, indexRoot: path.join(workdir, "index") });
     const res = await app.request(
       `/api/wikilink/resolve?text=${encodeURIComponent("Zettelkasten as thinking tool")}`,
     );
@@ -42,7 +42,7 @@ describe("GET /api/wikilink/resolve", () => {
   });
 
   it("returns {id: null} when no Note's H1 matches", async () => {
-    const app = createApp({ settingsPath });
+    const app = createApp({ settingsPath, indexRoot: path.join(workdir, "index") });
     const res = await app.request("/api/wikilink/resolve?text=NoSuchTitle");
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ id: null });
@@ -56,7 +56,7 @@ describe("GET /api/wikilink/suggest", () => {
     const b = await createNote(vaultPath);
     await saveNote(vaultPath, b.id, "# practical zen\n\nbody");
 
-    const app = createApp({ settingsPath });
+    const app = createApp({ settingsPath, indexRoot: path.join(workdir, "index") });
     const res = await app.request("/api/wikilink/suggest?q=zen");
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
@@ -69,7 +69,7 @@ describe("GET /api/wikilink/suggest", () => {
   });
 
   it("returns an empty suggestions array for an empty query", async () => {
-    const app = createApp({ settingsPath });
+    const app = createApp({ settingsPath, indexRoot: path.join(workdir, "index") });
     const res = await app.request("/api/wikilink/suggest?q=");
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ suggestions: [] });

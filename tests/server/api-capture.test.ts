@@ -29,7 +29,7 @@ afterEach(async () => {
 
 describe("POST /api/capture", () => {
   it("creates today's Daily Note and appends a Block with the captured text", async () => {
-    const app = createApp({ settingsPath });
+    const app = createApp({ settingsPath, indexRoot: path.join(workdir, "index") });
 
     const res = await app.request("/api/capture", {
       method: "POST",
@@ -47,7 +47,7 @@ describe("POST /api/capture", () => {
   });
 
   it("writes geo coordinates into the heading when geo is provided", async () => {
-    const app = createApp({ settingsPath });
+    const app = createApp({ settingsPath, indexRoot: path.join(workdir, "index") });
 
     const res = await app.request("/api/capture", {
       method: "POST",
@@ -67,7 +67,7 @@ describe("POST /api/capture", () => {
   it("returns 412 NO_VAULT when no vault is configured", async () => {
     const emptySettingsPath = path.join(workdir, "empty-settings.json");
     await saveSettings(emptySettingsPath, { vaultPath: null });
-    const app = createApp({ settingsPath: emptySettingsPath });
+    const app = createApp({ settingsPath: emptySettingsPath, indexRoot: path.join(workdir, "index") });
 
     const res = await app.request("/api/capture", {
       method: "POST",
