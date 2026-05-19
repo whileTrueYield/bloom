@@ -48,3 +48,30 @@ describe("GET /api/wikilink/resolve", () => {
     expect(await res.json()).toEqual({ id: null });
   });
 });
+
+describe("GET /api/wikilink/suggest", () => {
+  it("returns suggestions ranked by tier and capped at limit", async () => {
+    const a = await createNote(vaultPath);
+    await saveNote(vaultPath, a.id, "# zenith of thought\n\nbody");
+    const b = await createNote(vaultPath);
+    await saveNote(vaultPath, b.id, "# practical zen\n\nbody");
+
+    const app = createApp({ settingsPath });
+    const res = await app.request("/api/wikilink/suggest?q=zen");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      suggestions: Array<{ id: string; title: string; tier: number }>;
+    };
+    expect(body.suggestions.map((s) => s.title)).toEqual([
+      "zenith of thought", // tier 1 (prefix)
+      "practical zen",     // tier 2 (substring)
+    ]);
+  });
+
+  it("returns an empty suggestions array for an empty query", async () => {
+    const app = createApp({ settingsPath });
+    const res = await app.request("/api/wikilink/suggest?q=");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ suggestions: [] });
+  });
+});

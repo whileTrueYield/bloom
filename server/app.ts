@@ -16,6 +16,7 @@ import type {
   VaultResponse,
   VaultSetRequest,
   WikilinkResolveResponse,
+  WikilinkSuggestResponse,
 } from "@shared/types";
 import {
   bootstrapVaultLayout,
@@ -26,7 +27,7 @@ import {
   validateVaultPath,
 } from "./vault";
 import { appendBlock } from "./dailyNote";
-import { resolveWikilink } from "./wikilink";
+import { resolveWikilink, suggestWikilinks } from "./wikilink";
 import { loadSettings, saveSettings } from "./settings";
 
 export interface AppDeps {
@@ -160,6 +161,15 @@ export function createApp(deps: AppDeps): Hono {
     }
     const id = await resolveWikilink(c.var.vaultPath, text);
     const body: WikilinkResolveResponse = { id };
+    return c.json(body);
+  });
+
+  wikilinkRouter.get("/suggest", async (c) => {
+    const q = c.req.query("q") ?? "";
+    const suggestions = q
+      ? await suggestWikilinks(c.var.vaultPath, q)
+      : [];
+    const body: WikilinkSuggestResponse = { suggestions };
     return c.json(body);
   });
 

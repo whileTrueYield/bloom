@@ -74,3 +74,14 @@ export interface CaptureResponse {
 export interface WikilinkResolveResponse {
   id: string | null;
 }
+
+export interface WikilinkSuggestion {
+  id: string;
+  title: string;
+  modified: string;
+  tier: 1 | 2;
+}
+
+export interface WikilinkSuggestResponse {
+  suggestions: WikilinkSuggestion[];
+}
