@@ -18,3 +18,41 @@ export interface ApiError {
   error: string;
   message: string;
 }
+
+export interface GeoStamp {
+  lat: number | null;
+  lon: number | null;
+  place: string | null;
+  accuracy_m: number | null;
+}
+
+export interface NoteFrontmatter {
+  id: string;
+  created: string;
+  geo: GeoStamp;
+}
+
+export interface NoteSummary {
+  id: string;
+  modified: string;
+}
+
+export interface NoteResponse {
+  id: string;
+  path: string;
+  modified: string;
+  frontmatter: NoteFrontmatter;
+  body: string;
+}
+
+export interface CreateNoteRequest {
+  geo?: Partial<GeoStamp>;
+}
+
+export interface UpdateNoteRequest {
+  body: string;
+}
+
+export interface NotesListResponse {
+  notes: NoteSummary[];
+}
