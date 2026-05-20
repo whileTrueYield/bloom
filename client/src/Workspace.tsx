@@ -149,7 +149,7 @@ export function Workspace() {
       await dispatch(
         notesApi.endpoints.getNote.initiate(id, { forceRefetch: true }),
       ).unwrap();
-      dispatch(notesApi.util.invalidateTags(["Notes"]));
+      dispatch(notesApi.util.invalidateTags(["Notes", "Backlinks"]));
       dirtyRef.current = false;
       setEditorReloadToken((n) => n + 1);
     },
@@ -166,7 +166,7 @@ export function Workspace() {
         dirty: dirtyRef.current,
       });
       if (action.kind === "refresh-list") {
-        dispatch(notesApi.util.invalidateTags(["Notes"]));
+        dispatch(notesApi.util.invalidateTags(["Notes", "Backlinks"]));
         return;
       }
       if (action.kind === "reload-active" && activeIdRef.current) {
@@ -186,7 +186,7 @@ export function Workspace() {
       if (action.kind === "prompt-deleted") {
         window.alert("This Note was deleted outside Bloom.");
         setActiveId(null);
-        dispatch(notesApi.util.invalidateTags(["Notes"]));
+        dispatch(notesApi.util.invalidateTags(["Notes", "Backlinks"]));
       }
     });
     return () => conn.close();
