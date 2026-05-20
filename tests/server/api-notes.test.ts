@@ -148,6 +148,84 @@ describe("GET /api/notes", () => {
   });
 });
 
+describe("PUT /api/notes/:id (rename pipeline)", () => {
+  async function createWithBody(app: BloomApp, body: string): Promise<string> {
+    const res = await app.request("/api/notes", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    const note = (await res.json()) as NoteResponse;
+    await app.request(`/api/notes/${note.id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ body }),
+    });
+    return note.id;
+  }
+
+  it("rewrites references silently when ≤5 references exist", async () => {
+    const app = makeApp();
+    const targetId = await createWithBody(app, "# Old Title\n");
+    const sourceId = await createWithBody(app, "# Source\n[[Old Title]]");
+
+    const res = await app.request(`/api/notes/${targetId}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ body: "# New Title\n" }),
+    });
+    expect(res.status).toBe(200);
+
+    const source = await app.request(`/api/notes/${sourceId}`);
+    const sourceNote = (await source.json()) as NoteResponse;
+    expect(sourceNote.body).toContain("[[New Title]]");
+  });
+
+  it("returns 409 RENAME_NEEDS_CONFIRM when >5 references exist", async () => {
+    const app = makeApp();
+    const targetId = await createWithBody(app, "# Old Title\n");
+    for (let i = 0; i < 6; i++) {
+      await createWithBody(app, `# s${i}\n[[Old Title]]`);
+    }
+
+    const res = await app.request(`/api/notes/${targetId}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ body: "# New Title\n" }),
+    });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as {
+      error: string;
+      plan: { totalReferences: number; sources: unknown[] };
+    };
+    expect(body.error).toBe("RENAME_NEEDS_CONFIRM");
+    expect(body.plan.totalReferences).toBe(6);
+    expect(body.plan.sources).toHaveLength(6);
+  });
+
+  it("commits the rewrite when renameConfirmed=true is sent", async () => {
+    const app = makeApp();
+    const targetId = await createWithBody(app, "# Old Title\n");
+    const sourceIds: string[] = [];
+    for (let i = 0; i < 6; i++) {
+      sourceIds.push(await createWithBody(app, `# s${i}\n[[Old Title]]`));
+    }
+
+    const res = await app.request(`/api/notes/${targetId}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ body: "# New Title\n", renameConfirmed: true }),
+    });
+    expect(res.status).toBe(200);
+
+    for (const id of sourceIds) {
+      const r = await app.request(`/api/notes/${id}`);
+      const note = (await r.json()) as NoteResponse;
+      expect(note.body).toContain("[[New Title]]");
+    }
+  });
+});
+
 describe("requireVault middleware", () => {
   it("returns 412 NO_VAULT for /api/notes routes when no vault is configured", async () => {
     // Override the per-test settings with an empty settings file.
