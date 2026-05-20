@@ -43,6 +43,13 @@ export const dailyApi = createApi({
         { type: "Daily", id: date },
       ],
     }),
+    deleteDailyNote: builder.mutation<void, string>({
+      query: (date) => ({ url: `/daily/${date}`, method: "DELETE" }),
+      invalidatesTags: (_result, _err, date) => [
+        "DailyList",
+        { type: "Daily", id: date },
+      ],
+    }),
   }),
 });
 
@@ -51,4 +58,5 @@ export const {
   useGetDailyNoteQuery,
   useEnsureTodayMutation,
   useSaveDailyNoteMutation,
+  useDeleteDailyNoteMutation,
 } = dailyApi;

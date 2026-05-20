@@ -226,6 +226,37 @@ describe("PUT /api/notes/:id (rename pipeline)", () => {
   });
 });
 
+describe("DELETE /api/notes/:id", () => {
+  it("unlinks the file and drops the index row", async () => {
+    const app = makeApp();
+    const created = await app.request("/api/notes", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    const note = (await created.json()) as NoteResponse;
+
+    const del = await app.request(`/api/notes/${note.id}`, {
+      method: "DELETE",
+    });
+    expect(del.status).toBe(204);
+
+    const reload = await app.request(`/api/notes/${note.id}`);
+    expect(reload.status).toBe(404);
+  });
+
+  it("returns 404 when the note doesn't exist", async () => {
+    const app = makeApp();
+    const del = await app.request(
+      "/api/notes/20990101T000000000",
+      { method: "DELETE" },
+    );
+    expect(del.status).toBe(404);
+    const body = (await del.json()) as { error: string };
+    expect(body.error).toBe("NOTE_NOT_FOUND");
+  });
+});
+
 describe("requireVault middleware", () => {
   it("returns 412 NO_VAULT for /api/notes routes when no vault is configured", async () => {
     // Override the per-test settings with an empty settings file.

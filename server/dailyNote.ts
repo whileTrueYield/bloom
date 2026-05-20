@@ -2,7 +2,7 @@
 // Capture (appendBlock, sacred and AI-free) and direct edits via the Daily
 // Notes view (saveDailyNote, used to fix typos in already-captured Blocks).
 
-import { readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { readdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import matter from "gray-matter";
 
@@ -184,6 +184,17 @@ export async function saveDailyNote(
     modified: info.mtime.toISOString(),
     body: normalized,
   };
+}
+
+// Returns the unlinked path so the caller can markSelfWrite it; the watcher
+// would otherwise re-broadcast the deletion as an external change.
+export async function deleteDailyNote(
+  vaultPath: string,
+  date: string,
+): Promise<string> {
+  const filePath = path.join(vaultPath, "daily", `${date}.md`);
+  await unlink(filePath);
+  return filePath;
 }
 
 export async function listDailyNoteDates(vaultPath: string): Promise<string[]> {

@@ -31,6 +31,7 @@ import type {
 import {
   bootstrapVaultLayout,
   createNote,
+  deleteNote,
   listNotes,
   loadNote,
   saveNote,
@@ -38,6 +39,7 @@ import {
 } from "./vault";
 import {
   appendBlock,
+  deleteDailyNote,
   ensureTodayDailyNote,
   isValidDailyDate,
   listDailyNoteDates,
@@ -234,6 +236,25 @@ export function createApp(deps: AppDeps): BloomApp {
     }
   });
 
+  notesRouter.delete("/:id", async (c) => {
+    const id = c.req.param("id");
+    try {
+      const filePath = await deleteNote(c.var.vaultPath, id);
+      c.var.watcher.markSelfWrite(filePath);
+      c.var.indexer.deleteNote(id);
+      return c.body(null, 204);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        const e: ApiError = {
+          error: "NOTE_NOT_FOUND",
+          message: `No Note with id ${id}`,
+        };
+        return c.json(e, 404);
+      }
+      throw err;
+    }
+  });
+
   app.route("/api/notes", notesRouter);
 
   const captureRouter = new Hono<RequireVaultEnv>();
@@ -315,6 +336,34 @@ export function createApp(deps: AppDeps): BloomApp {
       c.var.watcher.markSelfWrite(daily.path);
       await c.var.indexer.indexDailyNote(date);
       return c.json(daily as DailyNoteResponse);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        const e: ApiError = {
+          error: "DAILY_NOT_FOUND",
+          message: `No Daily Note for ${date}`,
+        };
+        return c.json(e, 404);
+      }
+      throw err;
+    }
+  });
+
+  dailyRouter.delete("/:date", async (c) => {
+    const date = c.req.param("date");
+    if (!isValidDailyDate(date)) {
+      const e: ApiError = {
+        error: "BAD_DATE",
+        message: `Daily Note date must be YYYY-MM-DD, got "${date}"`,
+      };
+      return c.json(e, 400);
+    }
+    try {
+      const filePath = await deleteDailyNote(c.var.vaultPath, date);
+      c.var.watcher.markSelfWrite(filePath);
+      // The indexer's indexDailyNote walks the file; with the file gone it
+      // clears the date's rows from search_blocks and links.
+      await c.var.indexer.indexDailyNote(date);
+      return c.body(null, 204);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") {
         const e: ApiError = {
