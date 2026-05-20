@@ -1,9 +1,8 @@
-// Cmd+K command palette / global search. Renders an overlay at the top of
-// the viewport with a search input. Results stream in live as the user types
+// ⌘K command palette / global search. Renders an overlay near the top of the
+// viewport with a search input. Results stream in live as the user types
 // (debounced ~150ms via local state), visually distinguish Note vs Block
 // hits, and click-to-navigate for Notes. Block navigation lands in slice
-// #12 (Daily Notes view); for now block results just expand their snippet
-// inline.
+// #12 (Daily Notes view); for now block results just render their snippet.
 
 import { useEffect, useRef, useState } from "react";
 import type { SearchResult } from "@shared/types";
@@ -15,7 +14,11 @@ export interface CommandPaletteProps {
   onOpenNote: (id: string) => void;
 }
 
-export function CommandPalette({ open, onClose, onOpenNote }: CommandPaletteProps) {
+export function CommandPalette({
+  open,
+  onClose,
+  onOpenNote,
+}: CommandPaletteProps) {
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -64,98 +67,93 @@ export function CommandPalette({ open, onClose, onOpenNote }: CommandPaletteProp
   return (
     <div
       onClick={onClose}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.25)",
-        display: "flex",
-        alignItems: "flex-start",
-        justifyContent: "center",
-        paddingTop: "10vh",
-        zIndex: 100,
-      }}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Search"
+      className="fixed inset-0 z-100 flex items-start justify-center bg-neutral-950/40 px-4 pt-[10vh] backdrop-blur-sm"
     >
       <div
         onClick={(event) => event.stopPropagation()}
-        style={{
-          width: "min(40rem, 90vw)",
-          background: "white",
-          borderRadius: "0.5rem",
-          boxShadow: "0 10px 40px rgba(0,0,0,0.2)",
-          fontFamily: "system-ui, sans-serif",
-          overflow: "hidden",
-        }}
+        className="w-full max-w-2xl overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-black/5"
       >
-        <input
-          ref={inputRef}
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search Notes and captured Blocks…"
-          style={{
-            width: "100%",
-            padding: "0.75rem 1rem",
-            border: "none",
-            borderBottom: "1px solid #e5e5e5",
-            fontSize: "1rem",
-            outline: "none",
-            boxSizing: "border-box",
-          }}
-        />
+        <div className="flex items-center gap-3 border-b border-neutral-950/5 px-4">
+          <svg
+            viewBox="0 0 16 16"
+            fill="none"
+            aria-hidden="true"
+            className="size-4 shrink-0 text-neutral-400"
+          >
+            <path
+              d="M11 11l3 3M7 12.5A5.5 5.5 0 1 0 7 1.5a5.5 5.5 0 0 0 0 11Z"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+            />
+          </svg>
+          <input
+            ref={inputRef}
+            type="search"
+            name="search"
+            aria-label="Search Notes and captured Blocks"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search Notes and captured Blocks…"
+            className="block w-full appearance-none bg-transparent py-3.5 text-base text-neutral-900 outline-none placeholder:text-neutral-400 [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden max-sm:text-base/6"
+          />
+          <kbd className="hidden font-mono text-xs text-neutral-400 sm:block">
+            esc
+          </kbd>
+        </div>
 
         <ul
-          style={{
-            listStyle: "none",
-            margin: 0,
-            padding: 0,
-            maxHeight: "60vh",
-            overflowY: "auto",
-          }}
+          role="list"
+          className="max-h-[60vh] overflow-y-auto py-1.5"
+          aria-busy={isFetching}
         >
           {results.length === 0 && debouncedQuery && !isFetching && (
-            <li style={{ padding: "1rem", color: "#888" }}>No matches.</li>
+            <li className="px-4 py-6 text-center text-sm text-neutral-400">
+              No matches.
+            </li>
+          )}
+          {!debouncedQuery && (
+            <li className="px-4 py-6 text-center text-sm text-neutral-400">
+              Start typing to search.
+            </li>
           )}
           {results.map((hit, i) => (
-            <li
-              key={`${hit.kind}-${i}`}
-              onClick={() => handleClick(hit)}
-              style={{
-                padding: "0.625rem 1rem",
-                borderBottom: "1px solid #f0f0f0",
-                cursor: hit.kind === "note" ? "pointer" : "default",
-                display: "flex",
-                gap: "0.75rem",
-                alignItems: "baseline",
-              }}
-            >
-              <span
-                style={{
-                  fontSize: "0.875rem",
-                  minWidth: "1.25rem",
-                  color: hit.kind === "note" ? "#4f46e5" : "#a16207",
-                }}
-                title={hit.kind === "note" ? "Note" : "Daily Note Block"}
+            <li key={`${hit.kind}-${i}`}>
+              <button
+                type="button"
+                onClick={() => handleClick(hit)}
+                className={
+                  "flex w-full items-start gap-3 px-4 py-2.5 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-600 " +
+                  (hit.kind === "note"
+                    ? "cursor-pointer hover:bg-neutral-50"
+                    : "cursor-default")
+                }
               >
-                {hit.kind === "note" ? "📄" : "⚡"}
-              </span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 500 }}>
-                  {hit.kind === "note"
-                    ? hit.title ?? "(untitled)"
-                    : `${hit.dailyDate}${hit.time ? ` · ${hit.time}` : ""}`}
-                </div>
-                <div
-                  style={{
-                    fontSize: "0.8125rem",
-                    color: "#666",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
+                <span
+                  aria-hidden="true"
+                  className={
+                    "mt-1 font-mono text-xs tracking-wide uppercase " +
+                    (hit.kind === "note"
+                      ? "text-accent-700"
+                      : "text-amber-700")
+                  }
                 >
-                  {hit.snippet}
+                  {hit.kind === "note" ? "Note" : "Block"}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium text-neutral-900">
+                    {hit.kind === "note"
+                      ? (hit.title ?? "(untitled)")
+                      : `${hit.dailyDate}${hit.time ? ` · ${hit.time}` : ""}`}
+                  </div>
+                  <div className="truncate text-sm text-neutral-500">
+                    {hit.snippet}
+                  </div>
                 </div>
-              </div>
+              </button>
             </li>
           ))}
         </ul>

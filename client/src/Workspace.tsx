@@ -1,13 +1,14 @@
-// Two-pane workspace shown once a Vault is configured: sidebar of Notes on
-// the left, CodeMirror editor on the right. Owns hotkeys and orchestrates
-// wikilink resolution / creation.
+// Three-pane workspace shown once a Vault is configured: notes sidebar on the
+// left, CodeMirror editor in the centre, backlinks rail on the right (the rail
+// collapses below `xl` and rides under the editor for narrow screens). Owns
+// global hotkeys and orchestrates wikilink resolution / creation.
 //
-// The "which note is open" state lives in the URL hash (see useNoteRoute),
-// so browser back/forward — and our ⌘[ / ⌘] bindings — work for free.
+// The "which note is open" state lives in the URL hash (see useNoteRoute), so
+// browser back/forward — and our ⌘[ / ⌘] bindings — work for free.
 //
-// Why ⌘J for "new Note" instead of the obvious ⌘N: browsers hard-reserve
-// ⌘N (new window) and ⌘⇧N (new incognito) at the system level, so
-// preventDefault is a no-op. ⌘J is free across the major browsers.
+// Why ⌘J for "new Note" instead of the obvious ⌘N: browsers hard-reserve ⌘N
+// (new window) and ⌘⇧N (new incognito) at the system level, so preventDefault
+// is a no-op. ⌘J is free across the major browsers.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDispatch } from "react-redux";
@@ -43,9 +44,7 @@ async function resolveWikilinkRequest(text: string): Promise<string | null> {
 async function suggestWikilinkRequest(
   q: string,
 ): Promise<WikilinkSuggestion[]> {
-  const res = await fetch(
-    `/api/wikilink/suggest?q=${encodeURIComponent(q)}`,
-  );
+  const res = await fetch(`/api/wikilink/suggest?q=${encodeURIComponent(q)}`);
   if (!res.ok) return [];
   const body = (await res.json()) as { suggestions: WikilinkSuggestion[] };
   return body.suggestions;
@@ -217,14 +216,15 @@ export function Workspace() {
 
   const wikilinkHandlers = useMemo(
     () => ({
-      resolve: async (text: string) => (await resolveWikilinkRequest(text)) !== null,
+      resolve: async (text: string) =>
+        (await resolveWikilinkRequest(text)) !== null,
       onClick: (text: string) => void handleWikilinkClick(text),
     }),
     [handleWikilinkClick],
   );
 
   return (
-    <div style={{ display: "flex", gap: "1rem", padding: "1rem 1.5rem" }}>
+    <div className="grid min-h-0 flex-1 grid-cols-[16rem_1fr] xl:grid-cols-[16rem_1fr_18rem]">
       <CaptureModal open={captureOpen} onClose={() => setCaptureOpen(false)} />
       <CommandPalette
         open={paletteOpen}
@@ -232,50 +232,100 @@ export function Workspace() {
         onOpenNote={setActiveId}
       />
 
-      <aside style={{ flex: "0 0 14rem" }}>
-        <button
-          onClick={onCreate}
-          style={{ width: "100%", padding: "0.5rem", marginBottom: "0.5rem" }}
-        >
-          + New Note (⌘J)
-        </button>
-        <button
-          onClick={() => setCaptureOpen(true)}
-          style={{ width: "100%", padding: "0.5rem", marginBottom: "0.75rem" }}
-        >
-          ⚡ Capture (⌘⇧J)
-        </button>
+      <aside className="flex min-h-0 flex-col gap-4 overflow-y-auto border-r border-neutral-950/5 px-4 py-5">
+        <div className="flex flex-col gap-1.5">
+          <button
+            type="button"
+            onClick={onCreate}
+            className="flex items-center justify-between rounded-md bg-accent-700 px-3 py-2 text-sm font-medium text-white ring-1 ring-accent-700 hover:bg-accent-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-600"
+          >
+            <span>New Note</span>
+            <kbd className="font-mono text-xs text-white/70">⌘J</kbd>
+          </button>
+          <button
+            type="button"
+            onClick={() => setCaptureOpen(true)}
+            className="flex items-center justify-between rounded-md bg-white px-3 py-2 text-sm font-medium text-neutral-700 ring-1 ring-neutral-950/10 hover:bg-neutral-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-600"
+          >
+            <span>Capture</span>
+            <kbd className="font-mono text-xs text-neutral-400">⌘⇧J</kbd>
+          </button>
+          <button
+            type="button"
+            onClick={() => setPaletteOpen(true)}
+            className="flex items-center justify-between rounded-md px-3 py-2 text-sm text-neutral-500 hover:bg-neutral-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-600"
+          >
+            <span>Search</span>
+            <kbd className="font-mono text-xs text-neutral-400">⌘K</kbd>
+          </button>
+        </div>
+
         <NotesSidebar activeId={activeId} onOpen={setActiveId} />
       </aside>
 
-      <section style={{ flex: 1, minHeight: "20rem" }}>
+      <section className="flex min-h-0 flex-col overflow-y-auto">
         {activeId && activeNote ? (
           <>
-            <NoteEditor
-              key={`${activeNote.id}:${editorReloadToken}`}
-              noteId={activeNote.id}
-              initialBody={activeNote.body}
-              onChange={handleEditorChange}
-              wikilink={wikilinkHandlers}
-              suggestWikilinks={suggestWikilinkRequest}
-            />
-            <p style={{ color: "#888", fontSize: "0.8125rem", marginTop: "0.5rem" }}>
-              {saveStatus === "idle" && "Editing"}
-              {saveStatus === "saving" && "Saving…"}
-              {saveStatus === "saved" && "Saved"}
-              {saveStatus === "error" && "Save failed"}
-            </p>
-            <BacklinksPanel noteId={activeNote.id} onOpenNote={setActiveId} />
+            <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 py-10">
+              <NoteEditor
+                key={`${activeNote.id}:${editorReloadToken}`}
+                noteId={activeNote.id}
+                initialBody={activeNote.body}
+                onChange={handleEditorChange}
+                wikilink={wikilinkHandlers}
+                suggestWikilinks={suggestWikilinkRequest}
+              />
+              <p
+                className="mt-3 font-mono text-xs text-neutral-400 tabular-nums"
+                aria-live="polite"
+              >
+                {saveStatus === "idle" && "Editing"}
+                {saveStatus === "saving" && "Saving…"}
+                {saveStatus === "saved" && "Saved"}
+                {saveStatus === "error" && (
+                  <span className="text-red-600">Save failed</span>
+                )}
+              </p>
+              <div className="mt-10 xl:hidden">
+                <BacklinksPanel
+                  noteId={activeNote.id}
+                  onOpenNote={setActiveId}
+                />
+              </div>
+            </div>
           </>
         ) : (
-          <p style={{ color: "#888" }}>
-            Pick a Note from the sidebar, or press <kbd>⌘J</kbd> to create one.
-            <br />
-            Search everything with <kbd>⌘K</kbd>. Navigate history with{" "}
-            <kbd>⌘[</kbd> / <kbd>⌘]</kbd>.
-          </p>
+          <div className="mx-auto flex w-full max-w-md flex-col items-start gap-4 px-6 py-24 text-neutral-500">
+            <p className="font-mono text-xs tracking-wide text-accent-700 uppercase">
+              No Note selected
+            </p>
+            <h2 className="text-2xl font-semibold tracking-tight text-neutral-900">
+              Start with a fresh page.
+            </h2>
+            <p className="text-pretty">
+              Pick a Note from the sidebar, or press{" "}
+              <kbd className="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-xs text-neutral-700">
+                ⌘J
+              </kbd>{" "}
+              to create one. Search everything with{" "}
+              <kbd className="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-xs text-neutral-700">
+                ⌘K
+              </kbd>
+              .
+            </p>
+          </div>
         )}
       </section>
+
+      <aside className="hidden min-h-0 overflow-y-auto border-l border-neutral-950/5 px-5 py-6 xl:block">
+        {activeId && activeNote ? (
+          <BacklinksPanel noteId={activeNote.id} onOpenNote={setActiveId} />
+        ) : (
+          <p className="font-mono text-xs tracking-wide text-neutral-400 uppercase">
+            Backlinks
+          </p>
+        )}
+      </aside>
     </div>
   );
 }

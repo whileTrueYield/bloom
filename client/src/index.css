@@ -1,0 +1,76 @@
+/* Global stylesheet. Loads Inter (with optical sizing + alternate glyphs) and
+   IBM Plex Mono from CDNs, then pulls in Tailwind v4. The `@theme` block
+   registers Bloom's typography and accent palette as Tailwind tokens so any
+   component can reach for `font-sans`, `font-mono`, `bg-accent`, etc.
+
+   Why these choices: Bloom is a thinking tool, not a SaaS dashboard. The
+   typography is editorial, the neutrals are warm, and the accent is emerald —
+   "Bloom" is a botanical name and an indigo accent would feel corporate. */
+
+@import url("https://rsms.me/inter/inter.css");
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap");
+
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "InterVariable", ui-sans-serif, system-ui, sans-serif;
+  --font-sans--font-feature-settings: "cv02", "cv03", "cv04", "cv11", "ss01";
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Accent palette mirrors Tailwind's emerald scale and is exposed as `accent`
+     utilities (bg-accent-600, text-accent-700, etc.) so the brand can shift
+     without touching components. */
+  --color-accent-50: oklch(0.979 0.021 166);
+  --color-accent-100: oklch(0.95 0.052 163);
+  --color-accent-200: oklch(0.905 0.093 164);
+  --color-accent-300: oklch(0.845 0.143 165);
+  --color-accent-400: oklch(0.765 0.177 163);
+  --color-accent-500: oklch(0.696 0.17 162);
+  --color-accent-600: oklch(0.596 0.145 163);
+  --color-accent-700: oklch(0.508 0.118 165);
+  --color-accent-800: oklch(0.432 0.095 166);
+  --color-accent-900: oklch(0.378 0.077 168);
+  --color-accent-950: oklch(0.262 0.051 172);
+}
+
+/* CodeMirror sits inside a Tailwind-styled host, but its own DOM uses its own
+   stylesheet. These overrides match CodeMirror's surface to ours so the editor
+   reads as one continuous page instead of an embedded widget. */
+.cm-editor {
+  background: transparent;
+  height: 100%;
+}
+.cm-editor.cm-focused {
+  outline: none;
+}
+.cm-editor,
+.cm-editor .cm-scroller,
+.cm-editor .cm-content {
+  font-family: var(--font-sans);
+  font-size: 1.0625rem;
+  line-height: 1.7;
+}
+.cm-scroller {
+  padding: 0;
+}
+.cm-content {
+  caret-color: var(--color-accent-700);
+  padding: 0;
+}
+.cm-line {
+  padding: 0;
+}
+/* Bloom is a prose app, not a code editor — CodeMirror's gutter (line numbers,
+   fold markers) is hidden so the writing surface stays uninterrupted. We can
+   restore it for a code-block view later if needed. */
+.cm-gutters {
+  display: none !important;
+}
+.cm-editor .cm-activeLine,
+.cm-editor .cm-activeLineGutter {
+  background-color: transparent !important;
+}
+.cm-editor .cm-selectionBackground,
+.cm-editor .cm-content ::selection {
+  background-color: var(--color-accent-100) !important;
+}

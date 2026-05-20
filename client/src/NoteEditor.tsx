@@ -79,5 +79,7 @@ export function NoteEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [noteId]);
 
-  return <div ref={containerRef} style={{ height: "100%", minHeight: "20rem" }} />;
+  return (
+    <div ref={containerRef} className="min-h-[20rem] flex-1 text-neutral-900" />
+  );
 }

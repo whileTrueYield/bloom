@@ -80,70 +80,45 @@ export function CaptureModal({ open, onClose }: CaptureModalProps) {
   return (
     <div
       onClick={onClose}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.25)",
-        display: "flex",
-        alignItems: "flex-start",
-        justifyContent: "center",
-        paddingTop: "10vh",
-        zIndex: 100,
-      }}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Capture a quick thought"
+      className="fixed inset-0 z-100 flex items-start justify-center bg-neutral-950/40 px-4 pt-[10vh] backdrop-blur-sm"
     >
       <div
         onClick={(event) => event.stopPropagation()}
-        style={{
-          width: "min(36rem, 90vw)",
-          background: "white",
-          borderRadius: "0.5rem",
-          boxShadow: "0 10px 40px rgba(0,0,0,0.2)",
-          padding: "1.25rem",
-          fontFamily: "system-ui, sans-serif",
-        }}
+        className="w-full max-w-xl overflow-hidden rounded-xl bg-white p-5 shadow-2xl ring-1 ring-black/5"
       >
-        <header style={{ display: "flex", alignItems: "baseline", gap: "0.5rem" }}>
-          <strong>Capture</strong>
-          <span style={{ color: "#888", fontSize: "0.8125rem" }}>
-            Enter to save · Esc to close · Shift+Enter for newline
-          </span>
+        <header className="flex items-baseline justify-between gap-3">
+          <h2 className="text-sm font-semibold text-neutral-900">Capture</h2>
+          <p className="font-mono text-xs text-neutral-400">
+            <kbd>↵</kbd> save · <kbd>⇧↵</kbd> newline · <kbd>esc</kbd> close
+          </p>
         </header>
 
         <textarea
           ref={inputRef}
+          name="capture"
+          aria-label="Capture text"
           value={text}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={onKeyDown}
           rows={4}
           placeholder="Quick thought…"
-          style={{
-            display: "block",
-            width: "100%",
-            marginTop: "0.75rem",
-            padding: "0.5rem",
-            fontFamily: "ui-monospace, monospace",
-            fontSize: "0.9375rem",
-            resize: "vertical",
-            border: "1px solid #ddd",
-            borderRadius: "0.25rem",
-          }}
+          className="mt-3 block w-full resize-y rounded-md bg-white px-3 py-2 font-mono text-sm/6 text-neutral-900 ring-1 ring-neutral-950/10 outline-none placeholder:text-neutral-400 focus:ring-2 focus:ring-accent-600 max-sm:text-base/6"
         />
 
         <footer
-          style={{
-            marginTop: "0.75rem",
-            color: "#666",
-            fontSize: "0.8125rem",
-            minHeight: "1.25rem",
-          }}
+          className="mt-3 min-h-5 text-sm text-neutral-500"
+          aria-live="polite"
         >
           {status.kind === "idle" && "Geolocation captured on save."}
           {status.kind === "saving" &&
             (status.geo
-              ? `📍 ${status.geo.lat.toFixed(4)}, ${status.geo.lon.toFixed(4)} · saving…`
-              : "📍 no location available · saving without geo…")}
+              ? `Pin ${status.geo.lat.toFixed(4)}, ${status.geo.lon.toFixed(4)} · saving…`
+              : "No location available · saving without geo…")}
           {status.kind === "error" && (
-            <span style={{ color: "#b00020" }}>{status.message}</span>
+            <span className="text-red-600">{status.message}</span>
           )}
         </footer>
       </div>
