@@ -26,6 +26,7 @@ import { debounce } from "./debounce";
 import { useNoteRoute } from "./useNoteRoute";
 import { connectToVaultEvents } from "./eventsClient";
 import { decideExternalReloadAction } from "./externalReload";
+import type { AppDispatch } from "./store";
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 
@@ -50,11 +51,16 @@ async function suggestWikilinkRequest(
 }
 
 export function Workspace() {
-  const dispatch = useDispatch();
+  const dispatch = useDispatch<AppDispatch>();
   const [activeId, setActiveId] = useNoteRoute();
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [captureOpen, setCaptureOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  // Bumped every time we want the CodeMirror editor to re-hydrate from
+  // activeNote.body — used when an external edit lands and we need to throw
+  // away the in-memory buffer (the editor mounts once per noteId, so a key
+  // bump is how we tell React to remount it with the fresh content).
+  const [editorReloadToken, setEditorReloadToken] = useState(0);
   // Tracks whether the open editor's buffer has unsaved keystrokes ahead of
   // the debounced save. Used by the external-change handler below.
   const dirtyRef = useRef(false);
@@ -132,6 +138,23 @@ export function Workspace() {
     [activeId, debouncedSave],
   );
 
+  // Refetch the active Note and then remount the CodeMirror editor so the
+  // user sees the fresh body. The forceRefetch awaits the network round-trip,
+  // and bumping the reload token after it resolves guarantees React renders
+  // the editor with the new activeNote.body (the editor reads initialBody
+  // only on mount, so without the bump the doc would not change).
+  const reloadActiveNote = useCallback(
+    async (id: string) => {
+      await dispatch(
+        notesApi.endpoints.getNote.initiate(id, { forceRefetch: true }),
+      ).unwrap();
+      dispatch(notesApi.util.invalidateTags(["Notes"]));
+      dirtyRef.current = false;
+      setEditorReloadToken((n) => n + 1);
+    },
+    [dispatch],
+  );
+
   // Subscribe to the watcher's SSE feed once, for the life of the Workspace.
   // The dispatched RTK Query invalidations refetch the affected slices via
   // their existing tag wiring (no extra API plumbing required).
@@ -146,12 +169,7 @@ export function Workspace() {
         return;
       }
       if (action.kind === "reload-active" && activeIdRef.current) {
-        dispatch(
-          notesApi.util.invalidateTags([
-            "Notes",
-            { type: "Note", id: activeIdRef.current },
-          ]),
-        );
+        void reloadActiveNote(activeIdRef.current);
         return;
       }
       if (action.kind === "prompt-conflict" && activeIdRef.current) {
@@ -160,10 +178,7 @@ export function Workspace() {
           "This Note was changed outside Bloom. Reload and discard your unsaved edits?",
         );
         if (reload) {
-          dirtyRef.current = false;
-          dispatch(
-            notesApi.util.invalidateTags(["Notes", { type: "Note", id }]),
-          );
+          void reloadActiveNote(id);
         }
         return;
       }
@@ -174,7 +189,7 @@ export function Workspace() {
       }
     });
     return () => conn.close();
-  }, [dispatch, setActiveId]);
+  }, [dispatch, reloadActiveNote, setActiveId]);
 
   // Whenever a fresh activeNote.body lands from the server (initial fetch or
   // after a reload-active), the buffer is in sync with disk again.
@@ -236,7 +251,7 @@ export function Workspace() {
         {activeId && activeNote ? (
           <>
             <NoteEditor
-              key={activeNote.id}
+              key={`${activeNote.id}:${editorReloadToken}`}
               noteId={activeNote.id}
               initialBody={activeNote.body}
               onChange={handleEditorChange}
