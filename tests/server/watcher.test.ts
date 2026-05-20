@@ -40,6 +40,9 @@ function createFakeIndexer(): FakeIndexer {
     getBacklinks() {
       return [];
     },
+    async stats() {
+      return { notes: 0, daily: 0, blocks: 0, wikilinks: 0, sizeBytes: 0 };
+    },
     close() {},
   };
 }

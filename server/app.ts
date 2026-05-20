@@ -17,6 +17,7 @@ import type {
   DailyNotesListResponse,
   HealthResponse,
   IndexRebuildResponse,
+  IndexStatsResponse,
   NoteResponse,
   NotesListResponse,
   SearchResponse,
@@ -349,6 +350,11 @@ export function createApp(deps: AppDeps): BloomApp {
   indexRouter.post("/rebuild", async (c) => {
     const counts = await c.var.indexer.rebuild();
     const body: IndexRebuildResponse = counts;
+    return c.json(body);
+  });
+
+  indexRouter.get("/stats", async (c) => {
+    const body: IndexStatsResponse = await c.var.indexer.stats();
     return c.json(body);
   });
 
