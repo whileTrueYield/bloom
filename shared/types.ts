@@ -113,3 +113,9 @@ export interface IndexRebuildResponse {
   notes: number;
   daily: number;
 }
+
+// Vault watcher events published by GET /api/events (SSE). The `kind` field
+// is also the SSE event name so EventSource listeners can target one channel.
+export type VaultEvent =
+  | { kind: "note"; noteId: string; action: "changed" | "deleted" }
+  | { kind: "daily"; dailyDate: string; action: "changed" | "deleted" };

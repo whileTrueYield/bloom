@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createApp } from "@server/app";
+import { createApp, type BloomApp } from "@server/app";
 import { bootstrapVaultLayout } from "@server/vault";
 import { saveSettings } from "@server/settings";
 import type { NoteResponse, NotesListResponse } from "@shared/types";
@@ -14,23 +14,32 @@ import type { NoteResponse, NotesListResponse } from "@shared/types";
 let workdir: string;
 let vaultPath: string;
 let settingsPath: string;
+let activeApps: BloomApp[];
+
+function makeApp(settingsArg = settingsPath) {
+  const app = createApp({ settingsPath: settingsArg, indexRoot: path.join(workdir, "index") });
+  activeApps.push(app);
+  return app;
+}
 
 beforeEach(async () => {
   workdir = await mkdtemp(path.join(tmpdir(), "bloom-api-notes-"));
   vaultPath = path.join(workdir, "vault");
   settingsPath = path.join(workdir, "settings.json");
+  activeApps = [];
   await mkdir(vaultPath);
   await bootstrapVaultLayout(vaultPath);
   await saveSettings(settingsPath, { vaultPath });
 });
 
 afterEach(async () => {
+  for (const app of activeApps) await app.shutdown();
   await rm(workdir, { recursive: true, force: true });
 });
 
 describe("POST /api/notes", () => {
   it("creates a new Note and returns its full state", async () => {
-    const app = createApp({ settingsPath, indexRoot: path.join(workdir, "index") });
+    const app = makeApp();
 
     const res = await app.request("/api/notes", {
       method: "POST",
@@ -54,7 +63,7 @@ describe("POST /api/notes", () => {
 
 describe("GET /api/notes/:id", () => {
   it("returns a previously created Note", async () => {
-    const app = createApp({ settingsPath, indexRoot: path.join(workdir, "index") });
+    const app = makeApp();
 
     const created = (await (
       await app.request("/api/notes", {
@@ -73,7 +82,7 @@ describe("GET /api/notes/:id", () => {
   });
 
   it("returns 404 for an unknown id", async () => {
-    const app = createApp({ settingsPath, indexRoot: path.join(workdir, "index") });
+    const app = makeApp();
     const res = await app.request("/api/notes/20990101T000000000");
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error: string };
@@ -83,7 +92,7 @@ describe("GET /api/notes/:id", () => {
 
 describe("PUT /api/notes/:id", () => {
   it("updates the body and preserves the frontmatter", async () => {
-    const app = createApp({ settingsPath, indexRoot: path.join(workdir, "index") });
+    const app = makeApp();
 
     const created = (await (
       await app.request("/api/notes", {
@@ -110,14 +119,14 @@ describe("PUT /api/notes/:id", () => {
 
 describe("GET /api/notes", () => {
   it("returns an empty list when the vault has no notes", async () => {
-    const app = createApp({ settingsPath, indexRoot: path.join(workdir, "index") });
+    const app = makeApp();
     const res = await app.request("/api/notes");
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ notes: [] });
   });
 
   it("returns the created Notes sorted by modified desc", async () => {
-    const app = createApp({ settingsPath, indexRoot: path.join(workdir, "index") });
+    const app = makeApp();
 
     const post = () =>
       app.request("/api/notes", {
@@ -144,7 +153,7 @@ describe("requireVault middleware", () => {
     // Override the per-test settings with an empty settings file.
     const emptySettingsPath = path.join(workdir, "empty-settings.json");
     await saveSettings(emptySettingsPath, { vaultPath: null });
-    const app = createApp({ settingsPath: emptySettingsPath, indexRoot: path.join(workdir, "index") });
+    const app = makeApp(emptySettingsPath);
 
     for (const url of ["/api/notes", "/api/notes/20990101T000000000"]) {
       const res = await app.request(url);

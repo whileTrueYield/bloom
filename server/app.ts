@@ -4,6 +4,7 @@
 
 import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
+import { streamSSE } from "hono/streaming";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import type {
@@ -34,6 +35,7 @@ import { appendBlock } from "./dailyNote";
 import { resolveWikilink, suggestWikilinks } from "./wikilink";
 import { loadSettings, saveSettings } from "./settings";
 import { createIndexer, type Indexer } from "./indexer";
+import { createVaultWatcher, type VaultWatcher } from "./watcher";
 
 export interface AppDeps {
   // Absolute path to the JSON settings file. Production uses
@@ -53,10 +55,14 @@ function vaultHash(vaultPath: string): string {
 // settings on each request (cheap, ~kilobyte JSON) and exposes the resolved
 // vault path to handlers via c.var.vaultPath.
 type RequireVaultEnv = {
-  Variables: { vaultPath: string; indexer: Indexer };
+  Variables: { vaultPath: string; indexer: Indexer; watcher: VaultWatcher };
 };
 
-function requireVault(deps: AppDeps, getIndexer: (vaultPath: string) => Indexer) {
+function requireVault(
+  deps: AppDeps,
+  getIndexer: (vaultPath: string) => Indexer,
+  getWatcher: (vaultPath: string) => VaultWatcher,
+) {
   return createMiddleware<RequireVaultEnv>(async (c, next) => {
     const settings = await loadSettings(deps.settingsPath);
     if (!settings.vaultPath) {
@@ -68,11 +74,17 @@ function requireVault(deps: AppDeps, getIndexer: (vaultPath: string) => Indexer)
     }
     c.set("vaultPath", settings.vaultPath);
     c.set("indexer", getIndexer(settings.vaultPath));
+    c.set("watcher", getWatcher(settings.vaultPath));
     await next();
   });
 }
 
-export function createApp(deps: AppDeps): Hono {
+// The Hono app, with a `shutdown` method attached so callers (tests, the
+// production runner) can release per-vault watcher handles and SQLite
+// connections at the right time.
+export type BloomApp = Hono & { shutdown(): Promise<void> };
+
+export function createApp(deps: AppDeps): BloomApp {
   const app = new Hono();
 
   // Per-vault Indexer cache. Keyed by vaultPath so that POSTing a new vault
@@ -85,6 +97,20 @@ export function createApp(deps: AppDeps): Hono {
       const dbPath = path.join(deps.indexRoot, vaultHash(vaultPath), "index.sqlite");
       cached = createIndexer({ dbPath, vaultPath });
       indexerCache.set(vaultPath, cached);
+    }
+    return cached;
+  }
+
+  // Per-vault file watcher. Started on first access and shared by every
+  // request handler that needs to publish self-write markers or subscribe
+  // to external-change events.
+  const watcherCache = new Map<string, VaultWatcher>();
+  function getWatcher(vaultPath: string): VaultWatcher {
+    let cached = watcherCache.get(vaultPath);
+    if (!cached) {
+      cached = createVaultWatcher({ vaultPath, indexer: getIndexer(vaultPath) });
+      cached.start();
+      watcherCache.set(vaultPath, cached);
     }
     return cached;
   }
@@ -117,7 +143,7 @@ export function createApp(deps: AppDeps): Hono {
   });
 
   const notesRouter = new Hono<RequireVaultEnv>();
-  notesRouter.use("*", requireVault(deps, getIndexer));
+  notesRouter.use("*", requireVault(deps, getIndexer, getWatcher));
 
   notesRouter.get("/", async (c) => {
     const notes = await listNotes(c.var.vaultPath);
@@ -128,6 +154,7 @@ export function createApp(deps: AppDeps): Hono {
   notesRouter.post("/", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as CreateNoteRequest;
     const note = await createNote(c.var.vaultPath, { geo: body.geo });
+    c.var.watcher.markSelfWrite(note.path);
     await c.var.indexer.indexNote(note.id);
     return c.json(note as NoteResponse, 201);
   });
@@ -151,6 +178,7 @@ export function createApp(deps: AppDeps): Hono {
     const { body } = (await c.req.json()) as UpdateNoteRequest;
     try {
       const note = await saveNote(c.var.vaultPath, id, body);
+      c.var.watcher.markSelfWrite(note.path);
       await c.var.indexer.indexNote(note.id);
       return c.json(note as NoteResponse);
     } catch (err) {
@@ -165,7 +193,7 @@ export function createApp(deps: AppDeps): Hono {
   app.route("/api/notes", notesRouter);
 
   const captureRouter = new Hono<RequireVaultEnv>();
-  captureRouter.use("*", requireVault(deps, getIndexer));
+  captureRouter.use("*", requireVault(deps, getIndexer, getWatcher));
 
   captureRouter.post("/", async (c) => {
     const body = (await c.req.json()) as CaptureRequest;
@@ -173,6 +201,7 @@ export function createApp(deps: AppDeps): Hono {
       text: body.text,
       geo: body.geo,
     });
+    c.var.watcher.markSelfWrite(result.path);
     await c.var.indexer.indexDailyNote(result.date);
     const response: CaptureResponse = { date: result.date, path: result.path };
     return c.json(response, 201);
@@ -181,7 +210,7 @@ export function createApp(deps: AppDeps): Hono {
   app.route("/api/capture", captureRouter);
 
   const wikilinkRouter = new Hono<RequireVaultEnv>();
-  wikilinkRouter.use("*", requireVault(deps, getIndexer));
+  wikilinkRouter.use("*", requireVault(deps, getIndexer, getWatcher));
 
   wikilinkRouter.get("/resolve", async (c) => {
     const text = c.req.query("text");
@@ -209,7 +238,7 @@ export function createApp(deps: AppDeps): Hono {
   app.route("/api/wikilink", wikilinkRouter);
 
   const searchRouter = new Hono<RequireVaultEnv>();
-  searchRouter.use("*", requireVault(deps, getIndexer));
+  searchRouter.use("*", requireVault(deps, getIndexer, getWatcher));
 
   searchRouter.get("/", (c) => {
     const q = c.req.query("q") ?? "";
@@ -222,7 +251,7 @@ export function createApp(deps: AppDeps): Hono {
   app.route("/api/search", searchRouter);
 
   const indexRouter = new Hono<RequireVaultEnv>();
-  indexRouter.use("*", requireVault(deps, getIndexer));
+  indexRouter.use("*", requireVault(deps, getIndexer, getWatcher));
 
   indexRouter.post("/rebuild", async (c) => {
     const counts = await c.var.indexer.rebuild();
@@ -232,5 +261,44 @@ export function createApp(deps: AppDeps): Hono {
 
   app.route("/api/index", indexRouter);
 
-  return app;
+  // /api/events: server-sent-events stream of Vault changes (external edits,
+  // deletions, daily-note updates). The browser EventSource API consumes this
+  // to reload an open editor or surface a "reload?" prompt.
+  const eventsRouter = new Hono<RequireVaultEnv>();
+  eventsRouter.use("*", requireVault(deps, getIndexer, getWatcher));
+  eventsRouter.get("/", (c) => {
+    const watcher = c.var.watcher;
+    return streamSSE(c, async (stream) => {
+      const unsubscribe = watcher.subscribe((event) => {
+        // Each subscriber publish is non-blocking, but writeSSE returns a
+        // promise. We intentionally fire-and-forget — order is preserved by
+        // the watcher's debounce, and the stream tolerates back-pressure
+        // via its internal buffering.
+        void stream.writeSSE({
+          event: event.kind,
+          data: JSON.stringify(event),
+        });
+      });
+      // Hold the stream open until the client disconnects.
+      stream.onAbort(() => {
+        unsubscribe();
+      });
+      // Keep-alive ping so intermediaries don't time out idle connections.
+      while (!stream.aborted) {
+        await stream.sleep(15000);
+        await stream.writeSSE({ event: "ping", data: "" });
+      }
+      unsubscribe();
+    });
+  });
+  app.route("/api/events", eventsRouter);
+
+  const shutdown = async () => {
+    for (const w of watcherCache.values()) w.stop();
+    watcherCache.clear();
+    for (const i of indexerCache.values()) i.close();
+    indexerCache.clear();
+  };
+  Object.assign(app, { shutdown });
+  return app as BloomApp;
 }
