@@ -5,6 +5,7 @@
 
 import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 import type {
+  BacklinksResponse,
   CreateNoteRequest,
   NoteResponse,
   NotesListResponse,
@@ -14,7 +15,10 @@ import type {
 export const notesApi = createApi({
   reducerPath: "notesApi",
   baseQuery: fetchBaseQuery({ baseUrl: "/api" }),
-  tagTypes: ["Notes", "Note"],
+  // "Backlinks" is invalidated as a whole (not per-id): any save can affect
+  // any Note's backlinks, so it's simpler to refetch all subscribed panels
+  // than to track which target a given source mentions.
+  tagTypes: ["Notes", "Note", "Backlinks"],
   endpoints: (builder) => ({
     listNotes: builder.query<NotesListResponse, void>({
       query: () => "/notes",
@@ -24,9 +28,13 @@ export const notesApi = createApi({
       query: (id) => `/notes/${id}`,
       providesTags: (_result, _err, id) => [{ type: "Note", id }],
     }),
+    getBacklinks: builder.query<BacklinksResponse, string>({
+      query: (id) => `/notes/${id}/backlinks`,
+      providesTags: (_result, _err, id) => [{ type: "Backlinks", id }],
+    }),
     createNote: builder.mutation<NoteResponse, CreateNoteRequest>({
       query: (body) => ({ url: "/notes", method: "POST", body }),
-      invalidatesTags: ["Notes"],
+      invalidatesTags: ["Notes", "Backlinks"],
     }),
     saveNote: builder.mutation<NoteResponse, { id: string } & UpdateNoteRequest>({
       query: ({ id, body }) => ({
@@ -37,6 +45,7 @@ export const notesApi = createApi({
       invalidatesTags: (_result, _err, { id }) => [
         "Notes",
         { type: "Note", id },
+        "Backlinks",
       ],
     }),
   }),
@@ -45,6 +54,7 @@ export const notesApi = createApi({
 export const {
   useListNotesQuery,
   useGetNoteQuery,
+  useGetBacklinksQuery,
   useCreateNoteMutation,
   useSaveNoteMutation,
 } = notesApi;

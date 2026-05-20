@@ -119,3 +119,20 @@ export interface IndexRebuildResponse {
 export type VaultEvent =
   | { kind: "note"; noteId: string; action: "changed" | "deleted" }
   | { kind: "daily"; dailyDate: string; action: "changed" | "deleted" };
+
+// Backlinks: every source (Note or Daily Note Block) that contains a Wikilink
+// pointing at a given target Note. Snippets are extracted server-side from
+// the source's body so the UI can render context with no extra lookups.
+export type BacklinkSource =
+  | { kind: "note"; noteId: string; title: string | null; snippet: string }
+  | {
+      kind: "block";
+      dailyDate: string;
+      blockIndex: number;
+      time: string | null;
+      snippet: string;
+    };
+
+export interface BacklinksResponse {
+  backlinks: BacklinkSource[];
+}

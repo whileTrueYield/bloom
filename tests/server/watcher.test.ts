@@ -37,6 +37,9 @@ function createFakeIndexer(): FakeIndexer {
     search() {
       return [];
     },
+    getBacklinks() {
+      return [];
+    },
     close() {},
   };
 }

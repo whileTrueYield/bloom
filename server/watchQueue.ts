@@ -23,11 +23,15 @@ export interface WatchQueue {
 }
 
 export function createWatchQueue(opts: WatchQueueOptions): WatchQueue {
-  const ttl = opts.selfWriteTtlMs ?? opts.debounceMs * 2;
+  // Default to 1s — long enough to absorb FSEvents latency spikes and the
+  // multi-event echoes macOS emits for atomic writes (rename + change),
+  // short enough that a genuine external edit lands almost immediately.
+  const ttl = opts.selfWriteTtlMs ?? 1000;
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
   // Per-path expiration deadlines for self-write suppressions. We use a
-  // deadline rather than a counter so a marker expires naturally if the
-  // expected event never arrives — the next genuine external edit isn't eaten.
+  // deadline rather than a counter because a single atomic write can emit
+  // several fs events; suppressing all of them inside the TTL window is the
+  // only way to keep Bloom's own saves from looking like external edits.
   const suppressUntil = new Map<string, number>();
   const suppressTimers = new Map<string, ReturnType<typeof setTimeout>>();
   let stopped = false;
@@ -37,12 +41,6 @@ export function createWatchQueue(opts: WatchQueueOptions): WatchQueue {
       if (stopped) return;
       const deadline = suppressUntil.get(absPath);
       if (deadline !== undefined && Date.now() <= deadline) {
-        // Consume the marker — only the first event after a self-write is
-        // suppressed; subsequent events (truly external) flow through.
-        const st = suppressTimers.get(absPath);
-        if (st) clearTimeout(st);
-        suppressTimers.delete(absPath);
-        suppressUntil.delete(absPath);
         return;
       }
 

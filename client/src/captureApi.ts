@@ -4,6 +4,7 @@
 
 import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 import type { CaptureRequest, CaptureResponse } from "@shared/types";
+import { notesApi } from "./notesApi";
 
 export const captureApi = createApi({
   reducerPath: "captureApi",
@@ -13,6 +14,16 @@ export const captureApi = createApi({
     capture: builder.mutation<CaptureResponse, CaptureRequest>({
       query: (body) => ({ url: "/capture", method: "POST", body }),
       invalidatesTags: ["DailyNote"],
+      // A Capture can introduce a new [[wikilink]] from a Daily Note Block to
+      // a Note — so the destination Note's backlinks panel needs to refetch.
+      async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
+        try {
+          await queryFulfilled;
+          dispatch(notesApi.util.invalidateTags(["Backlinks"]));
+        } catch {
+          /* network errors propagate via the mutation result */
+        }
+      },
     }),
   }),
 });

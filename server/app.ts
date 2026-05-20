@@ -9,6 +9,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import type {
   ApiError,
+  BacklinksResponse,
   CaptureRequest,
   CaptureResponse,
   CreateNoteRequest,
@@ -157,6 +158,12 @@ export function createApp(deps: AppDeps): BloomApp {
     c.var.watcher.markSelfWrite(note.path);
     await c.var.indexer.indexNote(note.id);
     return c.json(note as NoteResponse, 201);
+  });
+
+  notesRouter.get("/:id/backlinks", (c) => {
+    const id = c.req.param("id");
+    const body: BacklinksResponse = { backlinks: c.var.indexer.getBacklinks(id) };
+    return c.json(body);
   });
 
   notesRouter.get("/:id", async (c) => {
