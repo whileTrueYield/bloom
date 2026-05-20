@@ -59,18 +59,37 @@ describe("createWatchQueue", () => {
     queue.stop();
   });
 
-  it("only consumes the marker once — the next external event still flushes", async () => {
+  it("suppresses every enqueue inside the TTL window — macOS FSEvents can echo multiple events for one atomic write", async () => {
     const flushed: string[] = [];
     const queue = createWatchQueue({
       debounceMs: 20,
+      selfWriteTtlMs: 100,
       onFlush: (p) => flushed.push(p),
     });
 
     queue.markSelfWrite("/v/notes/a.md");
     queue.enqueue("/v/notes/a.md");
-    await wait(40);
+    await wait(20);
+    queue.enqueue("/v/notes/a.md");
+    await wait(20);
+    queue.enqueue("/v/notes/a.md");
+
+    await wait(60);
     expect(flushed).toEqual([]);
 
+    queue.stop();
+  });
+
+  it("lets through enqueues that arrive after the TTL has expired", async () => {
+    const flushed: string[] = [];
+    const queue = createWatchQueue({
+      debounceMs: 20,
+      selfWriteTtlMs: 40,
+      onFlush: (p) => flushed.push(p),
+    });
+
+    queue.markSelfWrite("/v/notes/a.md");
+    await wait(60); // marker expires
     queue.enqueue("/v/notes/a.md");
     await wait(40);
     expect(flushed).toEqual(["/v/notes/a.md"]);
