@@ -132,6 +132,64 @@ describe("createVaultWatcher — self-write skip", () => {
     const noteCalls = indexer.calls.filter((c) => c.method === "indexNote");
     expect(noteCalls).toEqual([]);
   });
+
+  // Regression test for the "phantom external edit" bug: macOS / iCloud /
+  // Spotlight touch xattrs on a file shortly after we write it, firing
+  // fs.watch events whose content matches what we just wrote. These used to
+  // leak past the self-write TTL and surface as an external-edit prompt in
+  // the editor. The watcher should dedupe on file content hash.
+  it("skips events whose file content is identical to what was last seen", async () => {
+    const id = "20260519T100000099";
+    const filePath = path.join(vaultPath, "notes", `${id}.md`);
+    const bytes = "---\nid: 20260519T100000099\n---\n# Same\n";
+
+    // First write establishes the cache entry through the normal flush path.
+    await writeFile(filePath, bytes);
+    await wait(150);
+    expect(indexer.calls.filter((c) => c.method === "indexNote")).toEqual([
+      { method: "indexNote", noteId: id },
+    ]);
+    indexer.calls.length = 0;
+
+    // Simulate an xattr-only / FSEvents-echo event: rewrite the exact same
+    // bytes. Without content dedupe this would fire a second indexNote + a
+    // "note changed" publish for the still-open editor.
+    await writeFile(filePath, bytes);
+    await wait(150);
+    expect(indexer.calls.filter((c) => c.method === "indexNote")).toEqual([]);
+  });
+
+  // Regression test for the new-note + type repro: after our save lands the
+  // OS fires a late echo carrying our just-saved bytes. The watcher's cache
+  // is populated by markSelfWrite at the moment of the write, so the echo
+  // (same bytes, fired well past the suppression TTL) is suppressed.
+  it("dedupes a late echo whose content matches the bytes we just wrote", async () => {
+    const id = "20260519T100000100";
+    const filePath = path.join(vaultPath, "notes", `${id}.md`);
+    const firstBytes = "---\nid: 20260519T100000100\n---\n# Initial\n";
+    const savedBytes = "---\nid: 20260519T100000100\n---\n# Saved body\n";
+
+    // Initial write seeds the cache through the normal flush.
+    await writeFile(filePath, firstBytes);
+    await wait(150);
+    indexer.calls.length = 0;
+
+    // Simulate a Bloom-side save: write the new bytes, then mark the path
+    // (the convention every writer in app.ts now follows).
+    await writeFile(filePath, savedBytes);
+    watcher.markSelfWrite(filePath);
+
+    // The watcher's TTL suppresses immediate echoes. Wait past the default
+    // suppression window so the second echo races without that safety net.
+    await wait(1100);
+
+    // A late echo with the same bytes fires now — this is the macOS / iCloud
+    // pattern that produced the "External Bloom edit" modal. The cache must
+    // recognise it as a no-op.
+    await writeFile(filePath, savedBytes);
+    await wait(150);
+    expect(indexer.calls.filter((c) => c.method === "indexNote")).toEqual([]);
+  });
 });
 
 describe("createVaultWatcher — subscribers", () => {

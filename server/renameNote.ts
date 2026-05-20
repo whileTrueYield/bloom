@@ -74,8 +74,8 @@ export async function renameNote(opts: RenameOptions): Promise<RenameResult> {
 
   // No title rewrite: just save the note and reindex.
   if (!titleChanged) {
-    markWritten(notePath);
     await writeNoteBody(notePath, noteParsed.data, newBody, writeFn);
+    markWritten(notePath);
     await indexer.indexNote(noteId);
     return { kind: "saved" };
   }
@@ -97,22 +97,21 @@ export async function renameNote(opts: RenameOptions): Promise<RenameResult> {
     snapshots.set(source.path, await readFile(source.path, "utf8"));
   }
 
-  // Mark every touched path as a self-write before we start writing. Doing
-  // this up front (rather than per-write) avoids a race where the watcher
-  // sees the fs event before the mark lands.
-  for (const source of plan.sources) markWritten(source.path);
-  markWritten(notePath);
-
   const writtenPaths: string[] = [];
   try {
     // Sources first — if any fails, the Note hasn't changed yet, so partial
-    // rollback is just restoring the successful source writes.
+    // rollback is just restoring the successful source writes. We mark each
+    // self-write AFTER its write completes so the watcher captures the bytes
+    // we actually committed (the cache is then primed against any FSEvents
+    // echo for the same content).
     for (const source of plan.sources) {
       await writeFn(source.path, source.newBody);
+      markWritten(source.path);
       writtenPaths.push(source.path);
     }
     // Then the Note itself.
     await writeNoteBody(notePath, noteParsed.data, newBody, writeFn);
+    markWritten(notePath);
     writtenPaths.push(notePath);
   } catch (err) {
     // Restore in reverse-write order. We use the real fs writeFile here on

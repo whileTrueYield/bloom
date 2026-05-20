@@ -6,8 +6,9 @@
 //   3. The Indexer, which is called on flush after we classify the path and
 //      check whether the file still exists.
 
-import { watch, type FSWatcher } from "node:fs";
-import { stat } from "node:fs/promises";
+import { readFileSync, watch, type FSWatcher } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import type { Indexer } from "./indexer";
 import { createWatchQueue, type WatchQueue } from "./watchQueue";
@@ -43,6 +44,18 @@ export function createVaultWatcher(opts: VaultWatcherOptions): VaultWatcher {
     for (const l of listeners) l(event);
   };
 
+  // Per-path sha of the bytes we last observed (either via an onFlush we let
+  // through, or via the writer-side markSelfWrite that captures the bytes we
+  // just wrote). macOS / iCloud / Spotlight happily fire fs.watch events
+  // whose file content matches what we just wrote — xattr touches and
+  // FSEvents echoes that leak past the self-write TTL. The cache turns
+  // those into no-ops while still catching genuine external edits.
+  const contentHashCache = new Map<string, string>();
+
+  function hashBytes(bytes: Buffer): string {
+    return createHash("sha256").update(bytes).digest("hex");
+  }
+
   const queue: WatchQueue = createWatchQueue({
     debounceMs,
     onFlush: async (absPath) => {
@@ -50,18 +63,31 @@ export function createVaultWatcher(opts: VaultWatcherOptions): VaultWatcher {
       const classified = classifyVaultPath(opts.vaultPath, absPath);
       if (classified.kind === "ignored") return;
 
-      // Existence check happens at flush time so a quick "delete then recreate"
-      // is treated as a change rather than a delete.
-      let exists = true;
+      // Read + hash the current bytes. readFile failing with ENOENT (or any
+      // other reason) means the file is gone — treat as a delete.
+      let currentBytes: Buffer | null = null;
       try {
-        await stat(absPath);
+        currentBytes = await readFile(absPath);
       } catch {
-        exists = false;
+        currentBytes = null;
       }
-      // stop() may have run during the stat() yield (especially in tests where
-      // teardown follows hot on the heels of the fs event). Re-check here so
-      // we don't issue indexer calls against a closed DB.
+      // stop() may have run during the readFile yield (especially in tests
+      // where teardown follows hot on the heels of the fs event). Re-check
+      // here so we don't issue indexer calls against a closed DB.
       if (stopped) return;
+      const exists = currentBytes !== null;
+      const currentHash = currentBytes ? hashBytes(currentBytes) : null;
+
+      // Hash dedupe: same content as last seen ⇒ no-op event (xattr touch,
+      // FSEvents echo, our own write that bled past the self-write TTL).
+      const cachedHash = contentHashCache.get(absPath);
+      if (exists && cachedHash === currentHash) return;
+
+      if (exists && currentHash) {
+        contentHashCache.set(absPath, currentHash);
+      } else {
+        contentHashCache.delete(absPath);
+      }
 
       if (classified.kind === "note") {
         if (exists) {
@@ -106,6 +132,16 @@ export function createVaultWatcher(opts: VaultWatcherOptions): VaultWatcher {
     },
     markSelfWrite(absPath) {
       queue.markSelfWrite(absPath);
+      // Snapshot the bytes we just wrote so any later fs event whose content
+      // matches is deduped at flush time. Sync read keeps the API a one-liner
+      // for callers; Note files are kilobytes so the cost is negligible.
+      // If the read fails (deleted path, transient race), drop the entry —
+      // a future flush will treat the next event as genuine and re-cache.
+      try {
+        contentHashCache.set(absPath, hashBytes(readFileSync(absPath)));
+      } catch {
+        contentHashCache.delete(absPath);
+      }
     },
     subscribe(listener) {
       listeners.add(listener);
