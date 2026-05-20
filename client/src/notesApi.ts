@@ -48,6 +48,14 @@ export const notesApi = createApi({
         "Backlinks",
       ],
     }),
+    deleteNote: builder.mutation<void, string>({
+      query: (id) => ({ url: `/notes/${id}`, method: "DELETE" }),
+      invalidatesTags: (_result, _err, id) => [
+        "Notes",
+        { type: "Note", id },
+        "Backlinks",
+      ],
+    }),
   }),
 });
 
@@ -57,4 +65,5 @@ export const {
   useGetBacklinksQuery,
   useCreateNoteMutation,
   useSaveNoteMutation,
+  useDeleteNoteMutation,
 } = notesApi;

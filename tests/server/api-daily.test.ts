@@ -212,6 +212,40 @@ describe("POST /api/daily/today", () => {
   });
 });
 
+describe("DELETE /api/daily/:date", () => {
+  it("unlinks the file and clears the index for that date", async () => {
+    const app = makeApp();
+    const cap = await app.request("/api/capture", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "hi" }),
+    });
+    const { date } = (await cap.json()) as { date: string };
+
+    const del = await app.request(`/api/daily/${date}`, { method: "DELETE" });
+    expect(del.status).toBe(204);
+
+    const reload = await app.request(`/api/daily/${date}`);
+    expect(reload.status).toBe(404);
+  });
+
+  it("returns 404 when the daily note doesn't exist", async () => {
+    const app = makeApp();
+    const del = await app.request("/api/daily/2026-01-01", { method: "DELETE" });
+    expect(del.status).toBe(404);
+    const body = (await del.json()) as { error: string };
+    expect(body.error).toBe("DAILY_NOT_FOUND");
+  });
+
+  it("rejects malformed dates with 400", async () => {
+    const app = makeApp();
+    const del = await app.request("/api/daily/nope", { method: "DELETE" });
+    expect(del.status).toBe(400);
+    const body = (await del.json()) as { error: string };
+    expect(body.error).toBe("BAD_DATE");
+  });
+});
+
 describe("/api/daily without a configured vault", () => {
   it("returns 412 NO_VAULT for list, load, and save", async () => {
     const emptySettingsPath = path.join(workdir, "empty-settings.json");

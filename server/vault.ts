@@ -2,7 +2,7 @@
 // Public surface stays small (validation + bootstrap) so the rest of the app
 // only sees structured results, not raw FS errors.
 
-import { mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import matter from "gray-matter";
 import type { GeoStamp, NoteFrontmatter, NoteSummary } from "@shared/types";
@@ -154,6 +154,18 @@ export async function listNotes(vaultPath: string): Promise<NoteSummary[]> {
   );
   entries.sort((a, b) => b.mtimeMs - a.mtimeMs);
   return entries.map(({ id, modified }) => ({ id, modified }));
+}
+
+// Returns the file path that was unlinked so the caller can pass it to the
+// watcher's markSelfWrite — the deletion still fires an fs event the watcher
+// would otherwise re-broadcast as an external change.
+export async function deleteNote(
+  vaultPath: string,
+  id: string,
+): Promise<string> {
+  const filePath = path.join(vaultPath, "notes", `${id}.md`);
+  await unlink(filePath);
+  return filePath;
 }
 
 export async function saveNote(

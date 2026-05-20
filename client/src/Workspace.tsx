@@ -32,14 +32,17 @@ import { CaptureModal } from "./CaptureModal";
 import { CommandPalette } from "./CommandPalette";
 import { BacklinksPanel } from "./BacklinksPanel";
 import { RenameConfirmModal } from "./RenameConfirmModal";
+import { DeleteConfirmModal } from "./DeleteConfirmModal";
 import {
   notesApi,
   useCreateNoteMutation,
+  useDeleteNoteMutation,
   useGetNoteQuery,
   useSaveNoteMutation,
 } from "./notesApi";
 import {
   dailyApi,
+  useDeleteDailyNoteMutation,
   useGetDailyNoteQuery,
   useSaveDailyNoteMutation,
 } from "./dailyApi";
@@ -105,6 +108,45 @@ export function Workspace() {
   const [createNote] = useCreateNoteMutation();
   const [saveNote] = useSaveNoteMutation();
   const [saveDaily] = useSaveDailyNoteMutation();
+  const [deleteNote] = useDeleteNoteMutation();
+  const [deleteDaily] = useDeleteDailyNoteMutation();
+
+  // Pending-delete state. Either a Note id, a Daily Note date, or null.
+  const [pendingDelete, setPendingDelete] = useState<
+    | { kind: "note"; id: string }
+    | { kind: "daily"; date: string }
+    | null
+  >(null);
+  const [deletePending, setDeletePending] = useState(false);
+
+  const confirmDelete = useCallback(async () => {
+    if (!pendingDelete) return;
+    setDeletePending(true);
+    try {
+      if (pendingDelete.kind === "note") {
+        await deleteNote(pendingDelete.id).unwrap();
+        if (activeNoteId === pendingDelete.id) setRoute({ kind: "none" });
+      } else {
+        await deleteDaily(pendingDelete.date).unwrap();
+        if (activeDailyDate === pendingDelete.date) setRoute({ kind: "none" });
+      }
+      setPendingDelete(null);
+    } catch {
+      // Surface a generic save-status error; the modal stays open so the
+      // user can retry or cancel.
+      dispatch(setSaveStatus("error"));
+    } finally {
+      setDeletePending(false);
+    }
+  }, [
+    pendingDelete,
+    deleteNote,
+    deleteDaily,
+    activeNoteId,
+    activeDailyDate,
+    setRoute,
+    dispatch,
+  ]);
 
   const openNote = useCallback(
     (id: string | null) => {
@@ -375,6 +417,24 @@ export function Workspace() {
         onConfirm={() => void confirmRename()}
         onCancel={cancelRename}
       />
+      <DeleteConfirmModal
+        open={pendingDelete !== null}
+        title={
+          pendingDelete?.kind === "note"
+            ? "Delete this Note?"
+            : "Delete this Daily Note?"
+        }
+        description={
+          pendingDelete?.kind === "note"
+            ? `Note ${pendingDelete.id} will be removed from disk. Any [[wikilinks]] pointing to it will become orphans.`
+            : pendingDelete?.kind === "daily"
+              ? `Daily Note ${pendingDelete.date} and every Block it holds will be removed from disk.`
+              : ""
+        }
+        busy={deletePending}
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => setPendingDelete(null)}
+      />
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
@@ -422,8 +482,18 @@ export function Workspace() {
           </button>
         </div>
 
-        <DailySidebar activeDate={activeDailyDate} onOpenDaily={openDaily} />
-        <NotesSidebar activeId={activeNoteId} onOpen={openNote} />
+        <DailySidebar
+          activeDate={activeDailyDate}
+          onOpenDaily={openDaily}
+          onRequestDelete={(date) =>
+            setPendingDelete({ kind: "daily", date })
+          }
+        />
+        <NotesSidebar
+          activeId={activeNoteId}
+          onOpen={openNote}
+          onRequestDelete={(id) => setPendingDelete({ kind: "note", id })}
+        />
       </aside>
 
       <section className="flex min-h-0 flex-col overflow-y-auto">

@@ -3,11 +3,13 @@
 // Notes in descending order. Sibling of NotesSidebar — Notes and Daily Notes
 // are distinct concepts in the Bloom vocabulary, so they get distinct rails.
 
+import { TrashIcon } from "@heroicons/react/24/outline";
 import { useListDailyNotesQuery, useEnsureTodayMutation } from "./dailyApi";
 
 export interface DailySidebarProps {
   activeDate: string | null;
   onOpenDaily: (date: string) => void;
+  onRequestDelete: (date: string) => void;
 }
 
 // `Date.toLocaleDateString("en-CA")` happens to format YYYY-MM-DD in every
@@ -31,7 +33,11 @@ function formatDailyDate(iso: string): string {
   return dailyFormatter.format(d);
 }
 
-export function DailySidebar({ activeDate, onOpenDaily }: DailySidebarProps) {
+export function DailySidebar({
+  activeDate,
+  onOpenDaily,
+  onRequestDelete,
+}: DailySidebarProps) {
   const { data, isLoading, isError } = useListDailyNotesQuery();
   const [ensureToday] = useEnsureTodayMutation();
   const today = todayLocalDate();
@@ -82,13 +88,13 @@ export function DailySidebar({ activeDate, onOpenDaily }: DailySidebarProps) {
             .map((d) => {
               const isActive = d.date === activeDate;
               return (
-                <li key={d.date}>
+                <li key={d.date} className="group relative">
                   <button
                     type="button"
                     onClick={() => onOpenDaily(d.date)}
                     aria-current={isActive ? "page" : undefined}
                     className={
-                      "flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-600 " +
+                      "flex w-full items-center justify-between rounded-md px-2.5 py-1.5 pr-9 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-600 " +
                       (isActive
                         ? "bg-accent-50 text-accent-900"
                         : "text-neutral-700 hover:bg-neutral-50")
@@ -100,6 +106,17 @@ export function DailySidebar({ activeDate, onOpenDaily }: DailySidebarProps) {
                     <span className="font-mono text-xs text-neutral-400 tabular-nums">
                       {d.date}
                     </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onRequestDelete(d.date);
+                    }}
+                    aria-label={`Delete Daily Note ${d.date}`}
+                    className="absolute top-1/2 right-1.5 hidden -translate-y-1/2 rounded p-1 text-neutral-400 hover:bg-white hover:text-red-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-600 group-hover:block"
+                  >
+                    <TrashIcon aria-hidden="true" className="size-3.5" />
                   </button>
                 </li>
               );
