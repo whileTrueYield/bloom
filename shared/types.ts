@@ -57,6 +57,25 @@ export interface NotesListResponse {
   notes: NoteSummary[];
 }
 
+export interface DailyNoteSummary {
+  date: string;
+}
+
+export interface DailyNotesListResponse {
+  daily: DailyNoteSummary[];
+}
+
+export interface DailyNoteResponse {
+  date: string;
+  path: string;
+  modified: string;
+  body: string;
+}
+
+export interface UpdateDailyNoteRequest {
+  body: string;
+}
+
 export interface CaptureRequest {
   text: string;
   geo?: {

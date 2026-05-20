@@ -13,11 +13,14 @@ import type {
   CaptureRequest,
   CaptureResponse,
   CreateNoteRequest,
+  DailyNoteResponse,
+  DailyNotesListResponse,
   HealthResponse,
   IndexRebuildResponse,
   NoteResponse,
   NotesListResponse,
   SearchResponse,
+  UpdateDailyNoteRequest,
   UpdateNoteRequest,
   VaultResponse,
   VaultSetRequest,
@@ -32,7 +35,14 @@ import {
   saveNote,
   validateVaultPath,
 } from "./vault";
-import { appendBlock } from "./dailyNote";
+import {
+  appendBlock,
+  ensureTodayDailyNote,
+  isValidDailyDate,
+  listDailyNoteDates,
+  loadDailyNote,
+  saveDailyNote,
+} from "./dailyNote";
 import { resolveWikilink, suggestWikilinks } from "./wikilink";
 import { loadSettings, saveSettings } from "./settings";
 import { createIndexer, type Indexer } from "./indexer";
@@ -215,6 +225,82 @@ export function createApp(deps: AppDeps): BloomApp {
   });
 
   app.route("/api/capture", captureRouter);
+
+  const dailyRouter = new Hono<RequireVaultEnv>();
+  dailyRouter.use("*", requireVault(deps, getIndexer, getWatcher));
+
+  // POST /today is registered before /:date so it doesn't get swallowed by the
+  // dynamic segment. Returns 201 on first call of the day, 200 if today's
+  // Daily Note already exists (idempotent).
+  dailyRouter.post("/today", async (c) => {
+    const result = await ensureTodayDailyNote(c.var.vaultPath);
+    if (result.created) {
+      c.var.watcher.markSelfWrite(result.path);
+      await c.var.indexer.indexDailyNote(result.date);
+    }
+    return c.json({ date: result.date }, result.created ? 201 : 200);
+  });
+
+  dailyRouter.get("/", async (c) => {
+    const dates = await listDailyNoteDates(c.var.vaultPath);
+    const body: DailyNotesListResponse = {
+      daily: dates.map((date) => ({ date })),
+    };
+    return c.json(body);
+  });
+
+  dailyRouter.get("/:date", async (c) => {
+    const date = c.req.param("date");
+    if (!isValidDailyDate(date)) {
+      const e: ApiError = {
+        error: "BAD_DATE",
+        message: `Daily Note date must be YYYY-MM-DD, got "${date}"`,
+      };
+      return c.json(e, 400);
+    }
+    try {
+      const daily = await loadDailyNote(c.var.vaultPath, date);
+      return c.json(daily as DailyNoteResponse);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        const e: ApiError = {
+          error: "DAILY_NOT_FOUND",
+          message: `No Daily Note for ${date}`,
+        };
+        return c.json(e, 404);
+      }
+      throw err;
+    }
+  });
+
+  dailyRouter.put("/:date", async (c) => {
+    const date = c.req.param("date");
+    if (!isValidDailyDate(date)) {
+      const e: ApiError = {
+        error: "BAD_DATE",
+        message: `Daily Note date must be YYYY-MM-DD, got "${date}"`,
+      };
+      return c.json(e, 400);
+    }
+    const { body } = (await c.req.json()) as UpdateDailyNoteRequest;
+    try {
+      const daily = await saveDailyNote(c.var.vaultPath, date, body);
+      c.var.watcher.markSelfWrite(daily.path);
+      await c.var.indexer.indexDailyNote(date);
+      return c.json(daily as DailyNoteResponse);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        const e: ApiError = {
+          error: "DAILY_NOT_FOUND",
+          message: `No Daily Note for ${date}`,
+        };
+        return c.json(e, 404);
+      }
+      throw err;
+    }
+  });
+
+  app.route("/api/daily", dailyRouter);
 
   const wikilinkRouter = new Hono<RequireVaultEnv>();
   wikilinkRouter.use("*", requireVault(deps, getIndexer, getWatcher));
