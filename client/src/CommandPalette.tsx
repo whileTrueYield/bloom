@@ -1,8 +1,8 @@
 // ⌘K command palette / global search. Renders an overlay near the top of the
 // viewport with a search input. Results stream in live as the user types
 // (debounced ~150ms via local state), visually distinguish Note vs Block
-// hits, and click-to-navigate for Notes. Block navigation lands in slice
-// #12 (Daily Notes view); for now block results just render their snippet.
+// hits, and click-to-navigate to either a Note or a Block within a Daily
+// Note (the block route includes the index so the editor scrolls into view).
 
 import { useEffect, useRef, useState } from "react";
 import type { SearchResult } from "@shared/types";
@@ -12,12 +12,14 @@ export interface CommandPaletteProps {
   open: boolean;
   onClose: () => void;
   onOpenNote: (id: string) => void;
+  onOpenBlock: (date: string, blockIndex: number) => void;
 }
 
 export function CommandPalette({
   open,
   onClose,
   onOpenNote,
+  onOpenBlock,
 }: CommandPaletteProps) {
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -59,9 +61,10 @@ export function CommandPalette({
   const handleClick = (hit: SearchResult) => {
     if (hit.kind === "note") {
       onOpenNote(hit.noteId);
-      onClose();
+    } else {
+      onOpenBlock(hit.dailyDate, hit.blockIndex);
     }
-    // Block navigation lands in slice #12 — no-op here.
+    onClose();
   };
 
   return (
@@ -125,12 +128,7 @@ export function CommandPalette({
               <button
                 type="button"
                 onClick={() => handleClick(hit)}
-                className={
-                  "flex w-full items-start gap-3 px-4 py-2.5 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-600 " +
-                  (hit.kind === "note"
-                    ? "cursor-pointer hover:bg-neutral-50"
-                    : "cursor-default")
-                }
+                className="flex w-full cursor-pointer items-start gap-3 px-4 py-2.5 text-left hover:bg-neutral-50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-600"
               >
                 <span
                   aria-hidden="true"

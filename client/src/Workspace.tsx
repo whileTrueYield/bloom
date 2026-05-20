@@ -1,9 +1,11 @@
-// Three-pane workspace shown once a Vault is configured: notes sidebar on the
-// left, CodeMirror editor in the centre, backlinks rail on the right (the rail
-// collapses below `xl` and rides under the editor for narrow screens). Owns
-// global hotkeys and orchestrates wikilink resolution / creation.
+// Three-pane workspace shown once a Vault is configured: notes/daily sidebar
+// on the left, CodeMirror editor in the centre, backlinks rail on the right
+// (the rail collapses below `xl` and rides under the editor for narrow
+// screens). Owns global hotkeys and orchestrates wikilink resolution /
+// creation. The editor section branches on the current URL route — a `note`
+// route shows the Note editor, a `daily` route shows the Daily Note editor.
 //
-// The "which note is open" state lives in the URL hash (see useNoteRoute), so
+// The "which doc is open" state lives in the URL hash (see useRoute), so
 // browser back/forward — and our ⌘[ / ⌘] bindings — work for free.
 //
 // Why ⌘J for "new Note" instead of the obvious ⌘N: browsers hard-reserve ⌘N
@@ -15,6 +17,7 @@ import { useDispatch } from "react-redux";
 import type { WikilinkSuggestion } from "@shared/types";
 import { NoteEditor } from "./NoteEditor";
 import { NotesSidebar } from "./NotesSidebar";
+import { DailySidebar } from "./DailySidebar";
 import { CaptureModal } from "./CaptureModal";
 import { CommandPalette } from "./CommandPalette";
 import { BacklinksPanel } from "./BacklinksPanel";
@@ -24,10 +27,17 @@ import {
   useGetNoteQuery,
   useSaveNoteMutation,
 } from "./notesApi";
+import {
+  dailyApi,
+  useGetDailyNoteQuery,
+  useSaveDailyNoteMutation,
+} from "./dailyApi";
 import { debounce } from "./debounce";
-import { useNoteRoute } from "./useNoteRoute";
+import { useRoute } from "./useNoteRoute";
 import { connectToVaultEvents } from "./eventsClient";
 import { decideExternalReloadAction } from "./externalReload";
+import { findBlockLine } from "./dailyBlockLine";
+import type { Route } from "./route";
 import type { AppDispatch } from "./store";
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
@@ -52,33 +62,54 @@ async function suggestWikilinkRequest(
 
 export function Workspace() {
   const dispatch = useDispatch<AppDispatch>();
-  const [activeId, setActiveId] = useNoteRoute();
+  const [route, setRoute] = useRoute();
+  const activeNoteId = route.kind === "note" ? route.noteId : null;
+  const activeDailyDate = route.kind === "daily" ? route.date : null;
+  const activeBlockIndex = route.kind === "daily" ? route.blockIndex : null;
+
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [captureOpen, setCaptureOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  // Bumped every time we want the CodeMirror editor to re-hydrate from
-  // activeNote.body — used when an external edit lands and we need to throw
-  // away the in-memory buffer (the editor mounts once per noteId, so a key
-  // bump is how we tell React to remount it with the fresh content).
   const [editorReloadToken, setEditorReloadToken] = useState(0);
-  // Tracks whether the open editor's buffer has unsaved keystrokes ahead of
-  // the debounced save. Used by the external-change handler below.
   const dirtyRef = useRef(false);
-  const activeIdRef = useRef(activeId);
+  const routeRef = useRef(route);
   useEffect(() => {
-    activeIdRef.current = activeId;
-  }, [activeId]);
+    routeRef.current = route;
+  }, [route]);
 
-  const { data: activeNote } = useGetNoteQuery(activeId ?? "", {
-    skip: !activeId,
+  // currentData (vs. data) goes undefined immediately when the query arg
+  // changes — necessary so we don't briefly mount the editor with the
+  // previous doc's body when the user navigates between Notes / Dailies.
+  const { currentData: activeNote } = useGetNoteQuery(activeNoteId ?? "", {
+    skip: !activeNoteId,
   });
+  const { currentData: activeDaily, error: dailyError } = useGetDailyNoteQuery(
+    activeDailyDate ?? "",
+    { skip: !activeDailyDate },
+  );
+
   const [createNote] = useCreateNoteMutation();
   const [saveNote] = useSaveNoteMutation();
+  const [saveDaily] = useSaveDailyNoteMutation();
+
+  const openNote = useCallback(
+    (id: string | null) => {
+      setRoute(id ? { kind: "note", noteId: id } : { kind: "none" });
+    },
+    [setRoute],
+  );
+
+  const openDaily = useCallback(
+    (date: string, blockIndex: number | null = null) => {
+      setRoute({ kind: "daily", date, blockIndex });
+    },
+    [setRoute],
+  );
 
   const onCreate = useCallback(async () => {
     const note = await createNote({}).unwrap();
-    setActiveId(note.id);
-  }, [createNote, setActiveId]);
+    openNote(note.id);
+  }, [createNote, openNote]);
 
   // Global hotkeys: ⌘J = new Note, ⌘⇧J = Capture, ⌘K = command palette,
   // ⌘[ / ⌘] = history nav.
@@ -105,8 +136,10 @@ export function Workspace() {
     return () => window.removeEventListener("keydown", handler);
   }, [onCreate]);
 
-  // Debounced save (~500ms). The editor pushes every keystroke; we coalesce.
-  const debouncedSave = useMemo(
+  // Two debounced savers, one per editor kind — they share semantics but
+  // target different endpoints, so keeping them separate is simpler than a
+  // discriminated saver function.
+  const debouncedSaveNote = useMemo(
     () =>
       debounce((id: string, body: string) => {
         setSaveStatus("saving");
@@ -118,100 +151,141 @@ export function Workspace() {
     [saveNote],
   );
 
-  // Flush any pending save when the user navigates away from the page.
+  const debouncedSaveDaily = useMemo(
+    () =>
+      debounce((date: string, body: string) => {
+        setSaveStatus("saving");
+        saveDaily({ date, body })
+          .unwrap()
+          .then(() => {
+            setSaveStatus("saved");
+            // A Daily Note edit can rewrite wikilinks in any of its Blocks,
+            // which may flip backlinks for arbitrary Notes.
+            dispatch(notesApi.util.invalidateTags(["Backlinks"]));
+          })
+          .catch(() => setSaveStatus("error"));
+      }, 500),
+    [saveDaily, dispatch],
+  );
+
   useEffect(() => {
-    const onBeforeUnload = () => debouncedSave.flush();
+    const onBeforeUnload = () => {
+      debouncedSaveNote.flush();
+      debouncedSaveDaily.flush();
+    };
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => {
       window.removeEventListener("beforeunload", onBeforeUnload);
-      debouncedSave.cancel();
+      debouncedSaveNote.cancel();
+      debouncedSaveDaily.cancel();
     };
-  }, [debouncedSave]);
+  }, [debouncedSaveNote, debouncedSaveDaily]);
 
-  const handleEditorChange = useCallback(
+  const handleNoteEditorChange = useCallback(
     (body: string) => {
-      if (!activeId) return;
+      if (!activeNoteId) return;
       dirtyRef.current = true;
       setSaveStatus("idle");
-      debouncedSave(activeId, body);
+      debouncedSaveNote(activeNoteId, body);
     },
-    [activeId, debouncedSave],
+    [activeNoteId, debouncedSaveNote],
   );
 
-  // Refetch the active Note and then remount the CodeMirror editor so the
-  // user sees the fresh body. The forceRefetch awaits the network round-trip,
-  // and bumping the reload token after it resolves guarantees React renders
-  // the editor with the new activeNote.body (the editor reads initialBody
-  // only on mount, so without the bump the doc would not change).
-  const reloadActiveNote = useCallback(
-    async (id: string) => {
+  const handleDailyEditorChange = useCallback(
+    (body: string) => {
+      if (!activeDailyDate) return;
+      dirtyRef.current = true;
+      setSaveStatus("idle");
+      debouncedSaveDaily(activeDailyDate, body);
+    },
+    [activeDailyDate, debouncedSaveDaily],
+  );
+
+  const reloadActive = useCallback(async () => {
+    const r = routeRef.current;
+    if (r.kind === "note") {
       await dispatch(
-        notesApi.endpoints.getNote.initiate(id, { forceRefetch: true }),
+        notesApi.endpoints.getNote.initiate(r.noteId, { forceRefetch: true }),
       ).unwrap();
       dispatch(notesApi.util.invalidateTags(["Notes", "Backlinks"]));
-      dirtyRef.current = false;
-      setEditorReloadToken((n) => n + 1);
-    },
-    [dispatch],
-  );
+    } else if (r.kind === "daily") {
+      await dispatch(
+        dailyApi.endpoints.getDailyNote.initiate(r.date, {
+          forceRefetch: true,
+        }),
+      ).unwrap();
+      dispatch(dailyApi.util.invalidateTags(["DailyList"]));
+    }
+    dirtyRef.current = false;
+    setEditorReloadToken((n) => n + 1);
+  }, [dispatch]);
 
-  // Subscribe to the watcher's SSE feed once, for the life of the Workspace.
-  // The dispatched RTK Query invalidations refetch the affected slices via
-  // their existing tag wiring (no extra API plumbing required).
   useEffect(() => {
     const conn = connectToVaultEvents((event) => {
+      const r = routeRef.current;
       const action = decideExternalReloadAction(event, {
-        activeNoteId: activeIdRef.current,
+        activeNoteId: r.kind === "note" ? r.noteId : null,
+        activeDailyDate: r.kind === "daily" ? r.date : null,
         dirty: dirtyRef.current,
       });
       if (action.kind === "refresh-list") {
-        dispatch(notesApi.util.invalidateTags(["Notes", "Backlinks"]));
-        return;
-      }
-      if (action.kind === "reload-active" && activeIdRef.current) {
-        void reloadActiveNote(activeIdRef.current);
-        return;
-      }
-      if (action.kind === "prompt-conflict" && activeIdRef.current) {
-        const id = activeIdRef.current;
-        const reload = window.confirm(
-          "This Note was changed outside Bloom. Reload and discard your unsaved edits?",
-        );
-        if (reload) {
-          void reloadActiveNote(id);
+        if (event.kind === "note") {
+          dispatch(notesApi.util.invalidateTags(["Notes", "Backlinks"]));
+        } else {
+          dispatch(dailyApi.util.invalidateTags(["DailyList"]));
+          dispatch(notesApi.util.invalidateTags(["Backlinks"]));
         }
         return;
       }
+      if (action.kind === "reload-active") {
+        void reloadActive();
+        return;
+      }
+      if (action.kind === "prompt-conflict") {
+        const reload = window.confirm(
+          "This was changed outside Bloom. Reload and discard your unsaved edits?",
+        );
+        if (reload) void reloadActive();
+        return;
+      }
       if (action.kind === "prompt-deleted") {
-        window.alert("This Note was deleted outside Bloom.");
-        setActiveId(null);
+        window.alert("This was deleted outside Bloom.");
+        setRoute({ kind: "none" });
         dispatch(notesApi.util.invalidateTags(["Notes", "Backlinks"]));
+        dispatch(dailyApi.util.invalidateTags(["DailyList"]));
       }
     });
     return () => conn.close();
-  }, [dispatch, reloadActiveNote, setActiveId]);
+  }, [dispatch, reloadActive, setRoute]);
 
-  // Whenever a fresh activeNote.body lands from the server (initial fetch or
-  // after a reload-active), the buffer is in sync with disk again.
+  // Whenever a fresh active body lands from the server, the buffer is in sync
+  // with disk again.
   useEffect(() => {
-    if (activeNote) dirtyRef.current = false;
-  }, [activeNote]);
+    if (activeNote || activeDaily) dirtyRef.current = false;
+  }, [activeNote, activeDaily]);
 
-  // Wikilink: clicking a resolved link navigates; clicking an unresolved
-  // link offers to create a new Note pre-populated with the title as H1.
+  // Block deep-links: derive the line of the requested Block heading from the
+  // current Daily body. Recomputed whenever the body or the index changes, so
+  // an edit-then-revisit pattern still lands on the right line.
+  const scrollToLine = useMemo(() => {
+    if (route.kind !== "daily" || route.blockIndex == null) return null;
+    if (!activeDaily) return null;
+    return findBlockLine(activeDaily.body, route.blockIndex);
+  }, [route, activeDaily]);
+
   const handleWikilinkClick = useCallback(
     async (linkText: string) => {
       const id = await resolveWikilinkRequest(linkText);
       if (id) {
-        setActiveId(id);
+        openNote(id);
         return;
       }
       if (!window.confirm(`Create new note "${linkText}"?`)) return;
       const note = await createNote({}).unwrap();
       await saveNote({ id: note.id, body: `# ${linkText}\n\n` }).unwrap();
-      setActiveId(note.id);
+      openNote(note.id);
     },
-    [createNote, saveNote, setActiveId],
+    [createNote, saveNote, openNote],
   );
 
   const wikilinkHandlers = useMemo(
@@ -229,10 +303,11 @@ export function Workspace() {
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
-        onOpenNote={setActiveId}
+        onOpenNote={openNote}
+        onOpenBlock={openDaily}
       />
 
-      <aside className="flex min-h-0 flex-col gap-4 overflow-y-auto border-r border-neutral-950/5 px-4 py-5">
+      <aside className="flex min-h-0 flex-col gap-5 overflow-y-auto border-r border-neutral-950/5 px-4 py-5">
         <div className="flex flex-col gap-1.5">
           <button
             type="button"
@@ -260,41 +335,64 @@ export function Workspace() {
           </button>
         </div>
 
-        <NotesSidebar activeId={activeId} onOpen={setActiveId} />
+        <DailySidebar activeDate={activeDailyDate} onOpenDaily={openDaily} />
+        <NotesSidebar activeId={activeNoteId} onOpen={openNote} />
       </aside>
 
       <section className="flex min-h-0 flex-col overflow-y-auto">
-        {activeId && activeNote ? (
-          <>
-            <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 py-10">
-              <NoteEditor
-                key={`${activeNote.id}:${editorReloadToken}`}
+        {route.kind === "note" && activeNote && (
+          <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 py-10">
+            <NoteEditor
+              key={`note:${activeNote.id}:${editorReloadToken}`}
+              noteId={activeNote.id}
+              initialBody={activeNote.body}
+              onChange={handleNoteEditorChange}
+              wikilink={wikilinkHandlers}
+              suggestWikilinks={suggestWikilinkRequest}
+            />
+            <SaveStatusLine status={saveStatus} />
+            <div className="mt-10 xl:hidden">
+              <BacklinksPanel
                 noteId={activeNote.id}
-                initialBody={activeNote.body}
-                onChange={handleEditorChange}
-                wikilink={wikilinkHandlers}
-                suggestWikilinks={suggestWikilinkRequest}
+                onOpenNote={openNote}
+                onOpenBlock={openDaily}
               />
-              <p
-                className="mt-3 font-mono text-xs text-neutral-400 tabular-nums"
-                aria-live="polite"
-              >
-                {saveStatus === "idle" && "Editing"}
-                {saveStatus === "saving" && "Saving…"}
-                {saveStatus === "saved" && "Saved"}
-                {saveStatus === "error" && (
-                  <span className="text-red-600">Save failed</span>
-                )}
-              </p>
-              <div className="mt-10 xl:hidden">
-                <BacklinksPanel
-                  noteId={activeNote.id}
-                  onOpenNote={setActiveId}
-                />
-              </div>
             </div>
-          </>
-        ) : (
+          </div>
+        )}
+
+        {route.kind === "daily" && (
+          <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 py-10">
+            <header className="mb-4 flex items-baseline justify-between border-b border-neutral-950/5 pb-3">
+              <h1 className="text-lg font-semibold tracking-tight text-neutral-900">
+                Daily Note
+              </h1>
+              <span className="font-mono text-sm text-neutral-500 tabular-nums">
+                {route.date}
+              </span>
+            </header>
+            {activeDaily ? (
+              <>
+                <NoteEditor
+                  key={`daily:${route.date}:${editorReloadToken}`}
+                  noteId={`daily:${route.date}`}
+                  initialBody={activeDaily.body}
+                  onChange={handleDailyEditorChange}
+                  wikilink={wikilinkHandlers}
+                  suggestWikilinks={suggestWikilinkRequest}
+                  scrollToLine={scrollToLine}
+                />
+                <SaveStatusLine status={saveStatus} />
+              </>
+            ) : dailyError ? (
+              <DailyEmptyState date={route.date} />
+            ) : (
+              <p className="text-sm text-neutral-400">Loading…</p>
+            )}
+          </div>
+        )}
+
+        {route.kind === "none" && (
           <div className="mx-auto flex w-full max-w-md flex-col items-start gap-4 px-6 py-24 text-neutral-500">
             <p className="font-mono text-xs tracking-wide text-accent-700 uppercase">
               No Note selected
@@ -318,14 +416,46 @@ export function Workspace() {
       </section>
 
       <aside className="hidden min-h-0 overflow-y-auto border-l border-neutral-950/5 px-5 py-6 xl:block">
-        {activeId && activeNote ? (
-          <BacklinksPanel noteId={activeNote.id} onOpenNote={setActiveId} />
+        {route.kind === "note" && activeNote ? (
+          <BacklinksPanel
+            noteId={activeNote.id}
+            onOpenNote={openNote}
+            onOpenBlock={openDaily}
+          />
         ) : (
           <p className="font-mono text-xs tracking-wide text-neutral-400 uppercase">
             Backlinks
           </p>
         )}
       </aside>
+    </div>
+  );
+}
+
+function SaveStatusLine({ status }: { status: SaveStatus }) {
+  return (
+    <p
+      className="mt-3 font-mono text-xs text-neutral-400 tabular-nums"
+      aria-live="polite"
+    >
+      {status === "idle" && "Editing"}
+      {status === "saving" && "Saving…"}
+      {status === "saved" && "Saved"}
+      {status === "error" && <span className="text-red-600">Save failed</span>}
+    </p>
+  );
+}
+
+function DailyEmptyState({ date }: { date: string }) {
+  return (
+    <div className="mt-4 rounded-md bg-neutral-50 px-4 py-6 text-sm text-neutral-500">
+      No Daily Note for{" "}
+      <span className="font-mono tabular-nums text-neutral-700">{date}</span>{" "}
+      yet. Press{" "}
+      <kbd className="rounded bg-white px-1.5 py-0.5 font-mono text-xs text-neutral-700 ring-1 ring-neutral-950/10">
+        ⌘⇧J
+      </kbd>{" "}
+      to Capture a Block — that creates the file.
     </div>
   );
 }

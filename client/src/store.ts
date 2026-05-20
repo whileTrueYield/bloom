@@ -7,6 +7,7 @@ import { notesApi } from "./notesApi";
 import { captureApi } from "./captureApi";
 import { wikilinkApi } from "./wikilinkApi";
 import { searchApi } from "./searchApi";
+import { dailyApi } from "./dailyApi";
 
 export const store = configureStore({
   reducer: {
@@ -16,6 +17,7 @@ export const store = configureStore({
     [captureApi.reducerPath]: captureApi.reducer,
     [wikilinkApi.reducerPath]: wikilinkApi.reducer,
     [searchApi.reducerPath]: searchApi.reducer,
+    [dailyApi.reducerPath]: dailyApi.reducer,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware().concat(
@@ -25,6 +27,7 @@ export const store = configureStore({
       captureApi.middleware,
       wikilinkApi.middleware,
       searchApi.middleware,
+      dailyApi.middleware,
     ),
 });
 

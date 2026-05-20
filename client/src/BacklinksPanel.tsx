@@ -1,9 +1,7 @@
 // Backlinks rail. Subscribes to the backlinks tag so any Note or Daily Note
-// save anywhere in the Vault refreshes the list automatically.
-//
-// Block sources can't be navigated to in v0 (Daily Notes view lands in slice
-// #12), so they render as read-only context rows. Note sources open the
-// linked Note when clicked.
+// save anywhere in the Vault refreshes the list automatically. Note sources
+// open the linked Note; Block sources open the Daily Note with the Block
+// scrolled into view.
 
 import { useState } from "react";
 import { useGetBacklinksQuery } from "./notesApi";
@@ -11,9 +9,14 @@ import { useGetBacklinksQuery } from "./notesApi";
 export interface BacklinksPanelProps {
   noteId: string;
   onOpenNote: (id: string) => void;
+  onOpenBlock: (date: string, blockIndex: number) => void;
 }
 
-export function BacklinksPanel({ noteId, onOpenNote }: BacklinksPanelProps) {
+export function BacklinksPanel({
+  noteId,
+  onOpenNote,
+  onOpenBlock,
+}: BacklinksPanelProps) {
   const [open, setOpen] = useState(true);
   const { data, isLoading } = useGetBacklinksQuery(noteId);
 
@@ -64,22 +67,25 @@ export function BacklinksPanel({ noteId, onOpenNote }: BacklinksPanelProps) {
                 </button>
               </li>
             ) : (
-              <li
-                key={`b:${b.dailyDate}:${b.blockIndex}:${i}`}
-                className="flex flex-col gap-1 rounded-md bg-neutral-50 px-3 py-2.5 ring-1 ring-neutral-950/5"
-              >
-                <span className="flex items-baseline gap-2 text-sm">
-                  <span className="font-mono text-xs tracking-wide text-accent-700 uppercase">
-                    Daily
+              <li key={`b:${b.dailyDate}:${b.blockIndex}:${i}`}>
+                <button
+                  type="button"
+                  onClick={() => onOpenBlock(b.dailyDate, b.blockIndex)}
+                  className="flex w-full flex-col gap-1 rounded-md bg-neutral-50 px-3 py-2.5 text-left ring-1 ring-neutral-950/5 hover:ring-neutral-950/15 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-600"
+                >
+                  <span className="flex items-baseline gap-2 text-sm">
+                    <span className="font-mono text-xs tracking-wide text-accent-700 uppercase">
+                      Daily
+                    </span>
+                    <span className="font-mono text-xs text-neutral-500 tabular-nums">
+                      {b.dailyDate}
+                      {b.time ? ` · ${b.time}` : ""}
+                    </span>
                   </span>
-                  <span className="font-mono text-xs text-neutral-500 tabular-nums">
-                    {b.dailyDate}
-                    {b.time ? ` · ${b.time}` : ""}
+                  <span className="line-clamp-2 text-sm text-neutral-600">
+                    {b.snippet}
                   </span>
-                </span>
-                <span className="line-clamp-2 text-sm text-neutral-600">
-                  {b.snippet}
-                </span>
+                </button>
               </li>
             ),
           )}
