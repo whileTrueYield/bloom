@@ -15,6 +15,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDispatch } from "react-redux";
 import {
+  BoltIcon,
+  MagnifyingGlassIcon,
+  PlusIcon,
+} from "@heroicons/react/24/outline";
+import {
   clearBuffer,
   setBuffer,
   setSaveStatus,
@@ -324,7 +329,10 @@ export function Workspace() {
             onClick={onCreate}
             className="flex items-center justify-between rounded-md bg-accent-700 px-3 py-2 text-sm font-medium text-white ring-1 ring-accent-700 hover:bg-accent-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-600"
           >
-            <span>New Note</span>
+            <span className="flex items-center gap-2">
+              <PlusIcon aria-hidden="true" className="size-4" />
+              New Note
+            </span>
             <kbd className="font-mono text-xs text-white/70">⌘J</kbd>
           </button>
           <button
@@ -332,7 +340,10 @@ export function Workspace() {
             onClick={() => setCaptureOpen(true)}
             className="flex items-center justify-between rounded-md bg-white px-3 py-2 text-sm font-medium text-neutral-700 ring-1 ring-neutral-950/10 hover:bg-neutral-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-600"
           >
-            <span>Capture</span>
+            <span className="flex items-center gap-2">
+              <BoltIcon aria-hidden="true" className="size-4 text-accent-700" />
+              Capture
+            </span>
             <kbd className="font-mono text-xs text-neutral-400">⌘⇧J</kbd>
           </button>
           <button
@@ -340,7 +351,13 @@ export function Workspace() {
             onClick={() => setPaletteOpen(true)}
             className="flex items-center justify-between rounded-md px-3 py-2 text-sm text-neutral-500 hover:bg-neutral-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-600"
           >
-            <span>Search</span>
+            <span className="flex items-center gap-2">
+              <MagnifyingGlassIcon
+                aria-hidden="true"
+                className="size-4 text-neutral-400"
+              />
+              Search
+            </span>
             <kbd className="font-mono text-xs text-neutral-400">⌘K</kbd>
           </button>
         </div>

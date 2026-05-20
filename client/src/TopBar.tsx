@@ -3,6 +3,7 @@
 // only useful once a Vault is configured, but it stays visible always so the
 // user has a one-click escape hatch back to settings from any view.
 
+import { Cog6ToothIcon } from "@heroicons/react/24/outline";
 import { useGetVaultQuery } from "./vaultApi";
 import { useRoute } from "./useNoteRoute";
 
@@ -45,32 +46,9 @@ export function TopBar() {
               : "text-neutral-500 hover:bg-neutral-50 hover:text-neutral-700")
           }
         >
-          <CogIcon className="size-4" />
+          <Cog6ToothIcon aria-hidden="true" className="size-4" />
         </button>
       </div>
     </header>
-  );
-}
-
-function CogIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 20 20"
-      fill="none"
-      aria-hidden="true"
-      className={className}
-    >
-      <path
-        d="M10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
-        stroke="currentColor"
-        strokeWidth="1.5"
-      />
-      <path
-        d="m10 2 .9 1.8 2 .3-.4 2 1.4 1.5-1.4 1.5.4 2-2 .3L10 13l-.9-1.8-2-.3.4-2L6.1 7.6 7.5 6.1l-.4-2 2-.3L10 2Z"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinejoin="round"
-      />
-    </svg>
   );
 }

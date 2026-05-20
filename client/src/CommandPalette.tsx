@@ -5,6 +5,7 @@
 // Note (the block route includes the index so the editor scrolls into view).
 
 import { useEffect, useRef, useState } from "react";
+import { MagnifyingGlassIcon } from "@heroicons/react/24/outline";
 import type { SearchResult } from "@shared/types";
 import { useSearchQuery } from "./searchApi";
 
@@ -80,19 +81,10 @@ export function CommandPalette({
         className="w-full max-w-2xl overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-black/5"
       >
         <div className="flex items-center gap-3 border-b border-neutral-950/5 px-4">
-          <svg
-            viewBox="0 0 16 16"
-            fill="none"
+          <MagnifyingGlassIcon
             aria-hidden="true"
             className="size-4 shrink-0 text-neutral-400"
-          >
-            <path
-              d="M11 11l3 3M7 12.5A5.5 5.5 0 1 0 7 1.5a5.5 5.5 0 0 0 0 11Z"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-            />
-          </svg>
+          />
           <input
             ref={inputRef}
             type="search"
