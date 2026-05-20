@@ -9,19 +9,24 @@
 // ⌘N (new window) and ⌘⇧N (new incognito) at the system level, so
 // preventDefault is a no-op. ⌘J is free across the major browsers.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useDispatch } from "react-redux";
 import type { WikilinkSuggestion } from "@shared/types";
 import { NoteEditor } from "./NoteEditor";
 import { NotesSidebar } from "./NotesSidebar";
 import { CaptureModal } from "./CaptureModal";
 import { CommandPalette } from "./CommandPalette";
 import {
+  notesApi,
   useCreateNoteMutation,
   useGetNoteQuery,
   useSaveNoteMutation,
 } from "./notesApi";
 import { debounce } from "./debounce";
 import { useNoteRoute } from "./useNoteRoute";
+import { connectToVaultEvents } from "./eventsClient";
+import { decideExternalReloadAction } from "./externalReload";
+import type { AppDispatch } from "./store";
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 
@@ -46,10 +51,23 @@ async function suggestWikilinkRequest(
 }
 
 export function Workspace() {
+  const dispatch = useDispatch<AppDispatch>();
   const [activeId, setActiveId] = useNoteRoute();
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [captureOpen, setCaptureOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  // Bumped every time we want the CodeMirror editor to re-hydrate from
+  // activeNote.body — used when an external edit lands and we need to throw
+  // away the in-memory buffer (the editor mounts once per noteId, so a key
+  // bump is how we tell React to remount it with the fresh content).
+  const [editorReloadToken, setEditorReloadToken] = useState(0);
+  // Tracks whether the open editor's buffer has unsaved keystrokes ahead of
+  // the debounced save. Used by the external-change handler below.
+  const dirtyRef = useRef(false);
+  const activeIdRef = useRef(activeId);
+  useEffect(() => {
+    activeIdRef.current = activeId;
+  }, [activeId]);
 
   const { data: activeNote } = useGetNoteQuery(activeId ?? "", {
     skip: !activeId,
@@ -113,11 +131,71 @@ export function Workspace() {
   const handleEditorChange = useCallback(
     (body: string) => {
       if (!activeId) return;
+      dirtyRef.current = true;
       setSaveStatus("idle");
       debouncedSave(activeId, body);
     },
     [activeId, debouncedSave],
   );
+
+  // Refetch the active Note and then remount the CodeMirror editor so the
+  // user sees the fresh body. The forceRefetch awaits the network round-trip,
+  // and bumping the reload token after it resolves guarantees React renders
+  // the editor with the new activeNote.body (the editor reads initialBody
+  // only on mount, so without the bump the doc would not change).
+  const reloadActiveNote = useCallback(
+    async (id: string) => {
+      await dispatch(
+        notesApi.endpoints.getNote.initiate(id, { forceRefetch: true }),
+      ).unwrap();
+      dispatch(notesApi.util.invalidateTags(["Notes"]));
+      dirtyRef.current = false;
+      setEditorReloadToken((n) => n + 1);
+    },
+    [dispatch],
+  );
+
+  // Subscribe to the watcher's SSE feed once, for the life of the Workspace.
+  // The dispatched RTK Query invalidations refetch the affected slices via
+  // their existing tag wiring (no extra API plumbing required).
+  useEffect(() => {
+    const conn = connectToVaultEvents((event) => {
+      const action = decideExternalReloadAction(event, {
+        activeNoteId: activeIdRef.current,
+        dirty: dirtyRef.current,
+      });
+      if (action.kind === "refresh-list") {
+        dispatch(notesApi.util.invalidateTags(["Notes"]));
+        return;
+      }
+      if (action.kind === "reload-active" && activeIdRef.current) {
+        void reloadActiveNote(activeIdRef.current);
+        return;
+      }
+      if (action.kind === "prompt-conflict" && activeIdRef.current) {
+        const id = activeIdRef.current;
+        const reload = window.confirm(
+          "This Note was changed outside Bloom. Reload and discard your unsaved edits?",
+        );
+        if (reload) {
+          void reloadActiveNote(id);
+        }
+        return;
+      }
+      if (action.kind === "prompt-deleted") {
+        window.alert("This Note was deleted outside Bloom.");
+        setActiveId(null);
+        dispatch(notesApi.util.invalidateTags(["Notes"]));
+      }
+    });
+    return () => conn.close();
+  }, [dispatch, reloadActiveNote, setActiveId]);
+
+  // Whenever a fresh activeNote.body lands from the server (initial fetch or
+  // after a reload-active), the buffer is in sync with disk again.
+  useEffect(() => {
+    if (activeNote) dirtyRef.current = false;
+  }, [activeNote]);
 
   // Wikilink: clicking a resolved link navigates; clicking an unresolved
   // link offers to create a new Note pre-populated with the title as H1.
@@ -173,7 +251,7 @@ export function Workspace() {
         {activeId && activeNote ? (
           <>
             <NoteEditor
-              key={activeNote.id}
+              key={`${activeNote.id}:${editorReloadToken}`}
               noteId={activeNote.id}
               initialBody={activeNote.body}
               onChange={handleEditorChange}

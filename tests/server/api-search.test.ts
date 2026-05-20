@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createApp } from "@server/app";
+import { createApp, type BloomApp } from "@server/app";
 import { bootstrapVaultLayout } from "@server/vault";
 import { saveSettings } from "@server/settings";
 import type {
@@ -18,24 +18,33 @@ let workdir: string;
 let vaultPath: string;
 let settingsPath: string;
 let indexRoot: string;
+let activeApps: BloomApp[];
+
+function makeApp() {
+  const app = createApp({ settingsPath, indexRoot });
+  activeApps.push(app);
+  return app;
+}
 
 beforeEach(async () => {
   workdir = await mkdtemp(path.join(tmpdir(), "bloom-api-search-"));
   vaultPath = path.join(workdir, "vault");
   settingsPath = path.join(workdir, "settings.json");
   indexRoot = path.join(workdir, "index");
+  activeApps = [];
   await mkdir(vaultPath);
   await bootstrapVaultLayout(vaultPath);
   await saveSettings(settingsPath, { vaultPath });
 });
 
 afterEach(async () => {
+  for (const app of activeApps) await app.shutdown();
   await rm(workdir, { recursive: true, force: true });
 });
 
 describe("/api/search wiring", () => {
   it("POST /api/notes + PUT body → search finds the Note", async () => {
-    const app = createApp({ settingsPath, indexRoot });
+    const app = makeApp();
 
     const note = (await (
       await app.request("/api/notes", {
@@ -61,7 +70,7 @@ describe("/api/search wiring", () => {
   });
 
   it("POST /api/capture → search finds the Block", async () => {
-    const app = createApp({ settingsPath, indexRoot });
+    const app = makeApp();
 
     await app.request("/api/capture", {
       method: "POST",
@@ -88,7 +97,7 @@ describe("/api/search wiring", () => {
       "---\ndate: '2026-05-19'\ncreated: '2026-05-19T00:00:00.000Z'\n---\n## 09:14\nmanual capture about narwhals\n",
     );
 
-    const app = createApp({ settingsPath, indexRoot });
+    const app = makeApp();
 
     // Pre-rebuild: index hasn't seen any of this yet.
     expect(

@@ -6,30 +6,39 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createApp } from "@server/app";
+import { createApp, type BloomApp } from "@server/app";
 import { bootstrapVaultLayout } from "@server/vault";
 import { saveSettings } from "@server/settings";
 
 let workdir: string;
 let vaultPath: string;
 let settingsPath: string;
+let activeApps: BloomApp[];
+
+function makeApp(settingsArg = settingsPath) {
+  const app = createApp({ settingsPath: settingsArg, indexRoot: path.join(workdir, "index") });
+  activeApps.push(app);
+  return app;
+}
 
 beforeEach(async () => {
   workdir = await mkdtemp(path.join(tmpdir(), "bloom-api-capture-"));
   vaultPath = path.join(workdir, "vault");
   settingsPath = path.join(workdir, "settings.json");
+  activeApps = [];
   await mkdir(vaultPath);
   await bootstrapVaultLayout(vaultPath);
   await saveSettings(settingsPath, { vaultPath });
 });
 
 afterEach(async () => {
+  for (const app of activeApps) await app.shutdown();
   await rm(workdir, { recursive: true, force: true });
 });
 
 describe("POST /api/capture", () => {
   it("creates today's Daily Note and appends a Block with the captured text", async () => {
-    const app = createApp({ settingsPath, indexRoot: path.join(workdir, "index") });
+    const app = makeApp();
 
     const res = await app.request("/api/capture", {
       method: "POST",
@@ -47,7 +56,7 @@ describe("POST /api/capture", () => {
   });
 
   it("writes geo coordinates into the heading when geo is provided", async () => {
-    const app = createApp({ settingsPath, indexRoot: path.join(workdir, "index") });
+    const app = makeApp();
 
     const res = await app.request("/api/capture", {
       method: "POST",
@@ -67,7 +76,7 @@ describe("POST /api/capture", () => {
   it("returns 412 NO_VAULT when no vault is configured", async () => {
     const emptySettingsPath = path.join(workdir, "empty-settings.json");
     await saveSettings(emptySettingsPath, { vaultPath: null });
-    const app = createApp({ settingsPath: emptySettingsPath, indexRoot: path.join(workdir, "index") });
+    const app = makeApp(emptySettingsPath);
 
     const res = await app.request("/api/capture", {
       method: "POST",

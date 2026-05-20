@@ -81,6 +81,10 @@ export function createIndexer(opts: IndexerOptions): Indexer {
 
   const db = new Database(opts.dbPath);
   db.exec("PRAGMA journal_mode = WAL");
+  // Wait up to 5s if another connection holds the write lock. Belt-and-
+  // braces for hot-reload scenarios where a transient second connection
+  // momentarily contends with this one before being shut down.
+  db.exec("PRAGMA busy_timeout = 5000");
   db.exec(SCHEMA);
 
   const reindexNote = db.transaction(
