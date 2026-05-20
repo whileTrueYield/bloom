@@ -45,6 +45,7 @@ import {
   saveDailyNote,
 } from "./dailyNote";
 import { resolveWikilink, suggestWikilinks } from "./wikilink";
+import { renameNote } from "./renameNote";
 import { loadSettings, saveSettings } from "./settings";
 import { createIndexer, type Indexer } from "./indexer";
 import { createVaultWatcher, type VaultWatcher } from "./watcher";
@@ -193,11 +194,36 @@ export function createApp(deps: AppDeps): BloomApp {
 
   notesRouter.put("/:id", async (c) => {
     const id = c.req.param("id");
-    const { body } = (await c.req.json()) as UpdateNoteRequest;
+    const { body, renameConfirmed } = (await c.req.json()) as UpdateNoteRequest;
     try {
-      const note = await saveNote(c.var.vaultPath, id, body);
-      c.var.watcher.markSelfWrite(note.path);
-      await c.var.indexer.indexNote(note.id);
+      const result = await renameNote({
+        vaultPath: c.var.vaultPath,
+        indexer: c.var.indexer,
+        noteId: id,
+        newBody: body,
+        renameConfirmed,
+        markSelfWrite: (filePath) => c.var.watcher.markSelfWrite(filePath),
+      });
+
+      if (result.kind === "needsConfirm") {
+        const err: ApiError & { plan: unknown } = {
+          error: "RENAME_NEEDS_CONFIRM",
+          message: `Renaming "${result.plan.oldTitle}" → "${result.plan.newTitle}" will rewrite ${result.plan.totalReferences} reference(s). Confirm to proceed.`,
+          plan: {
+            oldTitle: result.plan.oldTitle,
+            newTitle: result.plan.newTitle,
+            totalReferences: result.plan.totalReferences,
+            sources: result.plan.sources.map((s) =>
+              s.kind === "note"
+                ? { kind: "note", noteId: s.noteId, count: s.count }
+                : { kind: "daily", dailyDate: s.dailyDate, count: s.count },
+            ),
+          },
+        };
+        return c.json(err, 409);
+      }
+
+      const note = await loadNote(c.var.vaultPath, id);
       return c.json(note as NoteResponse);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") {

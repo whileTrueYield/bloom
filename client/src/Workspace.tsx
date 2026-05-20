@@ -24,13 +24,14 @@ import {
   setBuffer,
   setSaveStatus,
 } from "./editorStatusSlice";
-import type { WikilinkSuggestion } from "@shared/types";
+import type { RenamePlanSummary, WikilinkSuggestion } from "@shared/types";
 import { NoteEditor } from "./NoteEditor";
 import { NotesSidebar } from "./NotesSidebar";
 import { DailySidebar } from "./DailySidebar";
 import { CaptureModal } from "./CaptureModal";
 import { CommandPalette } from "./CommandPalette";
 import { BacklinksPanel } from "./BacklinksPanel";
+import { RenameConfirmModal } from "./RenameConfirmModal";
 import {
   notesApi,
   useCreateNoteMutation,
@@ -78,6 +79,12 @@ export function Workspace() {
   const [captureOpen, setCaptureOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [editorReloadToken, setEditorReloadToken] = useState(0);
+  // Rename confirmation state. When a debounced save returns 409 the modal
+  // opens against the latest plan; we also stash the body that produced it
+  // so confirming sends the exact bytes the user authored.
+  const [renamePlan, setRenamePlan] = useState<RenamePlanSummary | null>(null);
+  const [renamePending, setRenamePending] = useState(false);
+  const pendingRenameBodyRef = useRef<string | null>(null);
   const dirtyRef = useRef(false);
   const routeRef = useRef(route);
   useEffect(() => {
@@ -153,7 +160,26 @@ export function Workspace() {
         saveNote({ id, body })
           .unwrap()
           .then(() => dispatch(setSaveStatus("saved")))
-          .catch(() => dispatch(setSaveStatus("error")));
+          .catch((err: { status?: number; data?: unknown }) => {
+            // 409 with RENAME_NEEDS_CONFIRM isn't a save failure — it's the
+            // server asking us to surface a confirmation modal. Stash the
+            // plan + the body that produced it, then revert save status so
+            // the StatusBar shows idle until the user decides.
+            const data = err?.data as
+              | { error?: string; plan?: RenamePlanSummary }
+              | undefined;
+            if (
+              err?.status === 409 &&
+              data?.error === "RENAME_NEEDS_CONFIRM" &&
+              data.plan
+            ) {
+              pendingRenameBodyRef.current = body;
+              setRenamePlan(data.plan);
+              dispatch(setSaveStatus("idle"));
+              return;
+            }
+            dispatch(setSaveStatus("error"));
+          });
       }, 500),
     [saveNote, dispatch],
   );
@@ -288,6 +314,34 @@ export function Workspace() {
     return findBlockLine(activeDaily.body, route.blockIndex);
   }, [route, activeDaily]);
 
+  const confirmRename = useCallback(async () => {
+    const id = activeNoteId;
+    const body = pendingRenameBodyRef.current;
+    if (!id || body == null) {
+      setRenamePlan(null);
+      return;
+    }
+    setRenamePending(true);
+    dispatch(setSaveStatus("saving"));
+    try {
+      await saveNote({ id, body, renameConfirmed: true }).unwrap();
+      dispatch(setSaveStatus("saved"));
+      pendingRenameBodyRef.current = null;
+      setRenamePlan(null);
+    } catch {
+      dispatch(setSaveStatus("error"));
+    } finally {
+      setRenamePending(false);
+    }
+  }, [activeNoteId, dispatch, saveNote]);
+
+  const cancelRename = useCallback(() => {
+    pendingRenameBodyRef.current = null;
+    setRenamePlan(null);
+    // The buffer keeps the user's new title; the StatusBar shows idle. They
+    // can keep typing — the next debounced save will re-prompt.
+  }, []);
+
   const handleWikilinkClick = useCallback(
     async (linkText: string) => {
       const id = await resolveWikilinkRequest(linkText);
@@ -315,6 +369,12 @@ export function Workspace() {
   return (
     <div className="grid min-h-0 flex-1 grid-cols-[16rem_1fr] xl:grid-cols-[16rem_1fr_18rem]">
       <CaptureModal open={captureOpen} onClose={() => setCaptureOpen(false)} />
+      <RenameConfirmModal
+        plan={renamePlan}
+        busy={renamePending}
+        onConfirm={() => void confirmRename()}
+        onCancel={cancelRename}
+      />
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}

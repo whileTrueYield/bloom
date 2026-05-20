@@ -37,10 +37,10 @@ export const notesApi = createApi({
       invalidatesTags: ["Notes", "Backlinks"],
     }),
     saveNote: builder.mutation<NoteResponse, { id: string } & UpdateNoteRequest>({
-      query: ({ id, body }) => ({
+      query: ({ id, body, renameConfirmed }) => ({
         url: `/notes/${id}`,
         method: "PUT",
-        body: { body },
+        body: { body, renameConfirmed },
       }),
       invalidatesTags: (_result, _err, { id }) => [
         "Notes",

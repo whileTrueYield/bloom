@@ -51,6 +51,32 @@ export interface CreateNoteRequest {
 
 export interface UpdateNoteRequest {
   body: string;
+  // When the save would rewrite > RENAME_CONFIRM_THRESHOLD references across
+  // the Vault, the server returns 409 RENAME_NEEDS_CONFIRM and the client
+  // re-issues with this flag set. Optional for normal saves.
+  renameConfirmed?: boolean;
+}
+
+export interface RenameSourceSummary {
+  kind: "note" | "daily";
+  // For kind="note" — the Note id whose body will be rewritten.
+  noteId?: string;
+  // For kind="daily" — the Daily Note date whose body will be rewritten.
+  dailyDate?: string;
+  // Number of [[oldTitle]] occurrences in this source.
+  count: number;
+}
+
+export interface RenamePlanSummary {
+  oldTitle: string;
+  newTitle: string;
+  totalReferences: number;
+  sources: RenameSourceSummary[];
+}
+
+export interface RenameNeedsConfirmError extends ApiError {
+  error: "RENAME_NEEDS_CONFIRM";
+  plan: RenamePlanSummary;
 }
 
 export interface NotesListResponse {
