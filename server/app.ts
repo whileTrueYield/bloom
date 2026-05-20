@@ -279,14 +279,14 @@ export function createApp(deps: AppDeps): BloomApp {
           data: JSON.stringify(event),
         });
       });
-      // Hold the stream open until the client disconnects.
-      stream.onAbort(() => {
-        unsubscribe();
-      });
-      // Keep-alive ping so intermediaries don't time out idle connections.
+      stream.onAbort(() => unsubscribe());
+      // Keep-alive ping every 5s so intermediaries (Vite proxy, corporate
+      // proxies, the browser's own idle detector) don't drop the connection
+      // during a quiet stretch. SSE comments (lines starting with ":") are
+      // discarded by EventSource and don't show up as events.
       while (!stream.aborted) {
-        await stream.sleep(15000);
-        await stream.writeSSE({ event: "ping", data: "" });
+        await stream.sleep(5000);
+        await stream.write(": keepalive\n\n");
       }
       unsubscribe();
     });
