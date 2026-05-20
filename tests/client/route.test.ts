@@ -47,6 +47,10 @@ describe("parseRoute", () => {
     expect(parseRoute("#daily/")).toEqual({ kind: "none" });
   });
 
+  it("parses the settings hash", () => {
+    expect(parseRoute("#settings")).toEqual({ kind: "settings" });
+  });
+
   it("rejects unknown hash shapes", () => {
     expect(parseRoute("#whatever")).toEqual({ kind: "none" });
   });
@@ -75,12 +79,17 @@ describe("formatRoute", () => {
     ).toBe("#daily/2026-05-20/b/3");
   });
 
+  it("formats settings", () => {
+    expect(formatRoute({ kind: "settings" })).toBe("#settings");
+  });
+
   it("round-trips through parseRoute", () => {
     const routes: Route[] = [
       { kind: "none" },
       { kind: "note", noteId: "abc-123" },
       { kind: "daily", date: "2026-05-20", blockIndex: null },
       { kind: "daily", date: "2026-05-20", blockIndex: 7 },
+      { kind: "settings" },
     ];
     for (const r of routes) {
       expect(parseRoute(formatRoute(r))).toEqual(r);

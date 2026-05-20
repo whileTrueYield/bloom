@@ -8,6 +8,8 @@ import { captureApi } from "./captureApi";
 import { wikilinkApi } from "./wikilinkApi";
 import { searchApi } from "./searchApi";
 import { dailyApi } from "./dailyApi";
+import { indexApi } from "./indexApi";
+import { editorStatusReducer } from "./editorStatusSlice";
 
 export const store = configureStore({
   reducer: {
@@ -18,6 +20,8 @@ export const store = configureStore({
     [wikilinkApi.reducerPath]: wikilinkApi.reducer,
     [searchApi.reducerPath]: searchApi.reducer,
     [dailyApi.reducerPath]: dailyApi.reducer,
+    [indexApi.reducerPath]: indexApi.reducer,
+    editorStatus: editorStatusReducer,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware().concat(
@@ -28,6 +32,7 @@ export const store = configureStore({
       wikilinkApi.middleware,
       searchApi.middleware,
       dailyApi.middleware,
+      indexApi.middleware,
     ),
 });
 

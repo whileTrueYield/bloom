@@ -14,6 +14,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDispatch } from "react-redux";
+import {
+  clearBuffer,
+  setBuffer,
+  setSaveStatus,
+} from "./editorStatusSlice";
 import type { WikilinkSuggestion } from "@shared/types";
 import { NoteEditor } from "./NoteEditor";
 import { NotesSidebar } from "./NotesSidebar";
@@ -40,8 +45,6 @@ import { findBlockLine } from "./dailyBlockLine";
 import type { Route } from "./route";
 import type { AppDispatch } from "./store";
 
-type SaveStatus = "idle" | "saving" | "saved" | "error";
-
 async function resolveWikilinkRequest(text: string): Promise<string | null> {
   const res = await fetch(
     `/api/wikilink/resolve?text=${encodeURIComponent(text)}`,
@@ -67,7 +70,6 @@ export function Workspace() {
   const activeDailyDate = route.kind === "daily" ? route.date : null;
   const activeBlockIndex = route.kind === "daily" ? route.blockIndex : null;
 
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [captureOpen, setCaptureOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [editorReloadToken, setEditorReloadToken] = useState(0);
@@ -142,28 +144,28 @@ export function Workspace() {
   const debouncedSaveNote = useMemo(
     () =>
       debounce((id: string, body: string) => {
-        setSaveStatus("saving");
+        dispatch(setSaveStatus("saving"));
         saveNote({ id, body })
           .unwrap()
-          .then(() => setSaveStatus("saved"))
-          .catch(() => setSaveStatus("error"));
+          .then(() => dispatch(setSaveStatus("saved")))
+          .catch(() => dispatch(setSaveStatus("error")));
       }, 500),
-    [saveNote],
+    [saveNote, dispatch],
   );
 
   const debouncedSaveDaily = useMemo(
     () =>
       debounce((date: string, body: string) => {
-        setSaveStatus("saving");
+        dispatch(setSaveStatus("saving"));
         saveDaily({ date, body })
           .unwrap()
           .then(() => {
-            setSaveStatus("saved");
+            dispatch(setSaveStatus("saved"));
             // A Daily Note edit can rewrite wikilinks in any of its Blocks,
             // which may flip backlinks for arbitrary Notes.
             dispatch(notesApi.util.invalidateTags(["Backlinks"]));
           })
-          .catch(() => setSaveStatus("error"));
+          .catch(() => dispatch(setSaveStatus("error")));
       }, 500),
     [saveDaily, dispatch],
   );
@@ -185,21 +187,29 @@ export function Workspace() {
     (body: string) => {
       if (!activeNoteId) return;
       dirtyRef.current = true;
-      setSaveStatus("idle");
+      dispatch(setBuffer(body));
+      dispatch(setSaveStatus("idle"));
       debouncedSaveNote(activeNoteId, body);
     },
-    [activeNoteId, debouncedSaveNote],
+    [activeNoteId, debouncedSaveNote, dispatch],
   );
 
   const handleDailyEditorChange = useCallback(
     (body: string) => {
       if (!activeDailyDate) return;
       dirtyRef.current = true;
-      setSaveStatus("idle");
+      dispatch(setBuffer(body));
+      dispatch(setSaveStatus("idle"));
       debouncedSaveDaily(activeDailyDate, body);
     },
-    [activeDailyDate, debouncedSaveDaily],
+    [activeDailyDate, debouncedSaveDaily, dispatch],
   );
+
+  // Reset the StatusBar's word-count buffer when the open doc changes; the
+  // StatusBar falls back to the freshly-fetched body until the user types.
+  useEffect(() => {
+    dispatch(clearBuffer());
+  }, [activeNoteId, activeDailyDate, dispatch]);
 
   const reloadActive = useCallback(async () => {
     const r = routeRef.current;
@@ -350,7 +360,6 @@ export function Workspace() {
               wikilink={wikilinkHandlers}
               suggestWikilinks={suggestWikilinkRequest}
             />
-            <SaveStatusLine status={saveStatus} />
             <div className="mt-10 xl:hidden">
               <BacklinksPanel
                 noteId={activeNote.id}
@@ -382,7 +391,6 @@ export function Workspace() {
                   suggestWikilinks={suggestWikilinkRequest}
                   scrollToLine={scrollToLine}
                 />
-                <SaveStatusLine status={saveStatus} />
               </>
             ) : dailyError ? (
               <DailyEmptyState date={route.date} />
@@ -429,20 +437,6 @@ export function Workspace() {
         )}
       </aside>
     </div>
-  );
-}
-
-function SaveStatusLine({ status }: { status: SaveStatus }) {
-  return (
-    <p
-      className="mt-3 font-mono text-xs text-neutral-400 tabular-nums"
-      aria-live="polite"
-    >
-      {status === "idle" && "Editing"}
-      {status === "saving" && "Saving…"}
-      {status === "saved" && "Saved"}
-      {status === "error" && <span className="text-red-600">Save failed</span>}
-    </p>
   );
 }
 

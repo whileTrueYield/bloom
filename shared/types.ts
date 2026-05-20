@@ -133,6 +133,14 @@ export interface IndexRebuildResponse {
   daily: number;
 }
 
+export interface IndexStatsResponse {
+  notes: number;
+  daily: number;
+  blocks: number;
+  wikilinks: number;
+  sizeBytes: number;
+}
+
 // Vault watcher events published by GET /api/events (SSE). The `kind` field
 // is also the SSE event name so EventSource listeners can target one channel.
 export type VaultEvent =

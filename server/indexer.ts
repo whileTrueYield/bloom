@@ -6,7 +6,7 @@
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import matter from "gray-matter";
 import { extractTitle, extractWikilinks } from "./wikilink";
@@ -29,6 +29,14 @@ export interface IndexerOptions {
   vaultPath: string;
 }
 
+export interface IndexStats {
+  notes: number;
+  daily: number;
+  blocks: number;
+  wikilinks: number;
+  sizeBytes: number;
+}
+
 export interface Indexer {
   indexNote(noteId: string): Promise<void>;
   indexDailyNote(date: string): Promise<void>;
@@ -36,6 +44,7 @@ export interface Indexer {
   rebuild(): Promise<{ notes: number; daily: number }>;
   search(query: string, limit?: number): SearchResult[];
   getBacklinks(targetNoteId: string): BacklinkSource[];
+  stats(): Promise<IndexStats>;
   close(): void;
 }
 
@@ -353,6 +362,28 @@ export function createIndexer(opts: IndexerOptions): Indexer {
     return out;
   };
 
+  const stats = async (): Promise<IndexStats> => {
+    const countOne = (sql: string): number =>
+      db.query<{ n: number }, []>(sql).get()?.n ?? 0;
+    let sizeBytes = 0;
+    try {
+      const info = await stat(opts.dbPath);
+      sizeBytes = info.size;
+    } catch {
+      // Database file may not exist yet (e.g., right after a rebuild that
+      // hasn't been flushed). Reporting 0 is harmless for the diagnostics UI.
+    }
+    return {
+      notes: countOne("SELECT COUNT(*) AS n FROM notes"),
+      daily: countOne(
+        "SELECT COUNT(DISTINCT daily_date) AS n FROM search_blocks",
+      ),
+      blocks: countOne("SELECT COUNT(*) AS n FROM search_blocks"),
+      wikilinks: countOne("SELECT COUNT(*) AS n FROM links"),
+      sizeBytes,
+    };
+  };
+
   return {
     indexNote,
     indexDailyNote,
@@ -360,6 +391,7 @@ export function createIndexer(opts: IndexerOptions): Indexer {
     rebuild,
     search,
     getBacklinks,
+    stats,
     close: () => db.close(),
   };
 }

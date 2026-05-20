@@ -1,13 +1,18 @@
-// Top-level shell: a column with the persistent TopBar followed by either the
-// Vault onboarding screen (no vault yet) or the full Workspace (vault is set).
+// Top-level shell: a column with the persistent TopBar, the active route's
+// surface (Workspace, SettingsPage, or vault-onboarding), and a sticky
+// StatusBar pinned at the bottom across every route.
 
 import { TopBar } from "./TopBar";
 import { VaultSettings } from "./VaultSettings";
 import { Workspace } from "./Workspace";
+import { SettingsPage } from "./SettingsPage";
+import { StatusBar } from "./StatusBar";
 import { useGetVaultQuery } from "./vaultApi";
+import { useRoute } from "./useNoteRoute";
 
 export function App() {
   const { data: vault, isLoading } = useGetVaultQuery();
+  const [route] = useRoute();
 
   return (
     <div className="flex h-full flex-col">
@@ -16,6 +21,8 @@ export function App() {
         <main className="flex flex-1 items-center justify-center">
           <p className="text-sm text-neutral-500">Loading…</p>
         </main>
+      ) : route.kind === "settings" ? (
+        <SettingsPage />
       ) : vault?.path ? (
         <Workspace />
       ) : (
@@ -39,6 +46,7 @@ export function App() {
           </div>
         </main>
       )}
+      <StatusBar />
     </div>
   );
 }
