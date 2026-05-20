@@ -12,7 +12,7 @@ import matter from "gray-matter";
 import { extractTitle, extractWikilinks } from "./wikilink";
 import { listNotes, loadNote } from "./vault";
 import { parseDailyNoteBlocks } from "./blockParse";
-import type { SearchResult } from "@shared/types";
+import type { BacklinkSource, SearchResult } from "@shared/types";
 
 // FTS5 treats some punctuation as syntax. Strip the problematic characters so
 // queries from a humans-typing-stuff source can't blow up the parser.
@@ -35,12 +35,18 @@ export interface Indexer {
   deleteNote(noteId: string): void;
   rebuild(): Promise<{ notes: number; daily: number }>;
   search(query: string, limit?: number): SearchResult[];
+  getBacklinks(targetNoteId: string): BacklinkSource[];
   close(): void;
 }
 
+// Bumped to 2 to add the source_kind/block_index columns to the links table.
+// The migration block below drops the old table on upgrade — backlinks are
+// fully derived from on-disk Vault content, so dropping costs nothing beyond
+// one re-index on the next save.
+const SCHEMA_VERSION = 2;
+
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY);
-  INSERT OR IGNORE INTO schema_version (version) VALUES (1);
 
   CREATE TABLE IF NOT EXISTS notes (
     id TEXT PRIMARY KEY,
@@ -65,10 +71,14 @@ const SCHEMA = `
   );
 
   CREATE TABLE IF NOT EXISTS links (
+    source_kind TEXT NOT NULL,
     source_id TEXT NOT NULL,
+    block_index INTEGER NOT NULL DEFAULT -1,
     target_title TEXT NOT NULL,
-    PRIMARY KEY (source_id, target_title)
+    PRIMARY KEY (source_kind, source_id, block_index, target_title)
   );
+
+  CREATE INDEX IF NOT EXISTS links_by_target ON links (target_title);
 `;
 
 export function createIndexer(opts: IndexerOptions): Indexer {
@@ -85,12 +95,35 @@ export function createIndexer(opts: IndexerOptions): Indexer {
   // braces for hot-reload scenarios where a transient second connection
   // momentarily contends with this one before being shut down.
   db.exec("PRAGMA busy_timeout = 5000");
+
+  // Schema migration: drop the v1 links table (different column shape)
+  // before the SCHEMA exec re-creates it. Safe because backlinks are
+  // re-derived on the next indexNote/indexDailyNote/rebuild call.
+  db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)");
+  const currentVersion =
+    db
+      .query<{ version: number }, []>("SELECT version FROM schema_version LIMIT 1")
+      .get()?.version ?? 0;
+  if (currentVersion < SCHEMA_VERSION) {
+    db.exec("DROP TABLE IF EXISTS links");
+    db.exec("DELETE FROM schema_version");
+    db.run("INSERT INTO schema_version (version) VALUES (?)", [SCHEMA_VERSION]);
+  }
+
   db.exec(SCHEMA);
 
   const reindexNote = db.transaction(
-    (noteId: string, title: string | null, modified: string, bodyHash: string, body: string) => {
+    (
+      noteId: string,
+      title: string | null,
+      modified: string,
+      bodyHash: string,
+      body: string,
+      wikilinks: string[],
+    ) => {
       db.run("DELETE FROM notes WHERE id = ?", [noteId]);
       db.run("DELETE FROM search_notes WHERE note_id = ?", [noteId]);
+      db.run("DELETE FROM links WHERE source_kind = 'note' AND source_id = ?", [noteId]);
       db.run(
         "INSERT INTO notes (id, title, modified, body_hash) VALUES (?, ?, ?, ?)",
         [noteId, title, modified, bodyHash],
@@ -99,6 +132,17 @@ export function createIndexer(opts: IndexerOptions): Indexer {
         "INSERT INTO search_notes (note_id, title, body) VALUES (?, ?, ?)",
         [noteId, title ?? "", body],
       );
+      // De-dupe: one row per (source, target_title). Multiple [[X]] inside
+      // the same Note still produce a single backlink entry.
+      const seen = new Set<string>();
+      for (const target of wikilinks) {
+        if (seen.has(target)) continue;
+        seen.add(target);
+        db.run(
+          "INSERT OR IGNORE INTO links (source_kind, source_id, target_title) VALUES ('note', ?, ?)",
+          [noteId, target],
+        );
+      }
     },
   );
 
@@ -106,7 +150,8 @@ export function createIndexer(opts: IndexerOptions): Indexer {
     const note = await loadNote(opts.vaultPath, noteId);
     const title = extractTitle(note.body);
     const bodyHash = sha256(note.body);
-    reindexNote(noteId, title, note.modified, bodyHash, note.body);
+    const links = extractWikilinks(note.body);
+    reindexNote(noteId, title, note.modified, bodyHash, note.body, links);
   };
 
   const indexDailyNote = async (date: string) => {
@@ -122,12 +167,25 @@ export function createIndexer(opts: IndexerOptions): Indexer {
 
     db.transaction(() => {
       db.run("DELETE FROM search_blocks WHERE daily_date = ?", [date]);
+      db.run(
+        "DELETE FROM links WHERE source_kind = 'block' AND source_id = ?",
+        [date],
+      );
       let blockIndex = 0;
       for (const block of blocks) {
         db.run(
           "INSERT INTO search_blocks (daily_date, block_index, time, text) VALUES (?, ?, ?, ?)",
           [date, blockIndex, block.time ?? "", block.text],
         );
+        const seen = new Set<string>();
+        for (const target of extractWikilinks(block.text)) {
+          if (seen.has(target)) continue;
+          seen.add(target);
+          db.run(
+            "INSERT OR IGNORE INTO links (source_kind, source_id, block_index, target_title) VALUES ('block', ?, ?, ?)",
+            [date, blockIndex, target],
+          );
+        }
         blockIndex += 1;
       }
     })();
@@ -226,14 +284,100 @@ export function createIndexer(opts: IndexerOptions): Indexer {
     return hits.slice(0, limit);
   };
 
+  const getBacklinks = (targetNoteId: string): BacklinkSource[] => {
+    const titleRow = db
+      .query<{ title: string | null }, [string]>(
+        "SELECT title FROM notes WHERE id = ?",
+      )
+      .get(targetNoteId);
+    const title = titleRow?.title;
+    if (!title) return [];
+
+    const noteRows = db
+      .query<
+        { note_id: string; source_title: string | null; body: string },
+        [string]
+      >(
+        `SELECT links.source_id AS note_id,
+                notes.title AS source_title,
+                search_notes.body AS body
+           FROM links
+           JOIN notes        ON notes.id        = links.source_id
+           JOIN search_notes ON search_notes.note_id = links.source_id
+          WHERE links.source_kind = 'note' AND links.target_title = ?
+          ORDER BY notes.modified DESC`,
+      )
+      .all(title);
+
+    const blockRows = db
+      .query<
+        {
+          daily_date: string;
+          block_index: number;
+          time: string | null;
+          text: string;
+        },
+        [string]
+      >(
+        `SELECT links.source_id AS daily_date,
+                links.block_index AS block_index,
+                search_blocks.time AS time,
+                search_blocks.text AS text
+           FROM links
+           JOIN search_blocks
+             ON search_blocks.daily_date  = links.source_id
+            AND search_blocks.block_index = links.block_index
+          WHERE links.source_kind = 'block' AND links.target_title = ?
+          ORDER BY links.source_id DESC, links.block_index ASC`,
+      )
+      .all(title);
+
+    const out: BacklinkSource[] = [];
+    for (const r of noteRows) {
+      out.push({
+        kind: "note",
+        noteId: r.note_id,
+        title: r.source_title,
+        snippet: snippetAroundLink(r.body, title),
+      });
+    }
+    for (const r of blockRows) {
+      out.push({
+        kind: "block",
+        dailyDate: r.daily_date,
+        blockIndex: r.block_index,
+        time: r.time && r.time.length > 0 ? r.time : null,
+        snippet: snippetAroundLink(r.text, title),
+      });
+    }
+    return out;
+  };
+
   return {
     indexNote,
     indexDailyNote,
     deleteNote,
     rebuild,
     search,
+    getBacklinks,
     close: () => db.close(),
   };
+}
+
+// Walk back from the first occurrence of [[targetTitle]] in `body` and grab
+// roughly `window` characters of surrounding text, trimmed to word
+// boundaries so the snippet reads cleanly. Falls back to the head of the
+// body when the link isn't found (shouldn't happen, but defensive).
+function snippetAroundLink(body: string, targetTitle: string, window = 80): string {
+  const needle = `[[${targetTitle}`;
+  const at = body.indexOf(needle);
+  if (at < 0) return body.slice(0, window * 2).trim();
+  const start = Math.max(0, at - window);
+  const end = Math.min(body.length, at + needle.length + window);
+  let slice = body.slice(start, end);
+  if (start > 0) slice = "…" + slice.replace(/^\S*\s/, "");
+  if (end < body.length) slice = slice.replace(/\s\S*$/, "") + "…";
+  return slice.replace(/\s+/g, " ").trim();
 }
 
 function ensureParentDirSync(filePath: string) {

@@ -16,6 +16,7 @@ import { NoteEditor } from "./NoteEditor";
 import { NotesSidebar } from "./NotesSidebar";
 import { CaptureModal } from "./CaptureModal";
 import { CommandPalette } from "./CommandPalette";
+import { BacklinksPanel } from "./BacklinksPanel";
 import {
   notesApi,
   useCreateNoteMutation,
@@ -264,6 +265,7 @@ export function Workspace() {
               {saveStatus === "saved" && "Saved"}
               {saveStatus === "error" && "Save failed"}
             </p>
+            <BacklinksPanel noteId={activeNote.id} onOpenNote={setActiveId} />
           </>
         ) : (
           <p style={{ color: "#888" }}>
